@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>logs/importer.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Level Options -->
+    <!-- TRACE: Most verbose, shows all messages -->
+    <!-- DEBUG: Shows debug messages and below -->
+    <!-- INFO: Shows info messages and below -->
+    <!-- WARN: Shows warning messages and below -->
+    <!-- ERROR: Shows error messages only -->
+
+    <!-- Set levels for different packages -->    
+    <logger name="com.example" level="DEBUG"/>
+    <logger name="com.zaxxer.hikari" level="INFO"/>
+
+    <!-- Set level for everything else (default) -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
