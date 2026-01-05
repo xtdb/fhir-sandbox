@@ -24,7 +24,9 @@
     <postgresql.version>42.7.3</postgresql.version>
     <hikaricp.version>5.1.0</hikaricp.version>
     <logback.version>1.5.3</logback.version>
+    <slf4j.version>2.0.12</slf4j.version>
     <junit.version>5.10.2</junit.version>
+    <assertj.version>3.25.3</assertj.version>
   </properties>
 
   <dependencies>
@@ -54,6 +56,11 @@
 
       <!-- Logging -->
       <dependency>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-api</artifactId>
+          <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
           <groupId>ch.qos.logback</groupId>
           <artifactId>logback-classic</artifactId>
           <version>${logback.version}</version>
@@ -69,7 +76,7 @@
       <dependency>
           <groupId>org.assertj</groupId>
           <artifactId>assertj-core</artifactId>
-          <version>3.25.3</version>
+          <version>${assertj.version}</version>
           <scope>test</scope>
       </dependency>
   </dependencies>

@@ -1,5 +1,6 @@
 target
-/.vscode
+.vscode
+logs
 
 # Only added currently, will be removed when README is needed!
 *.md
