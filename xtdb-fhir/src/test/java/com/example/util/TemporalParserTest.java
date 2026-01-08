@@ -1,12 +1,10 @@
-package com.example;
+package com.example.util;
 
 import java.lang.reflect.InvocationTargetException;
 import java.time.Instant;
 import java.time.LocalDate;
 
 import org.junit.jupiter.api.Test;
-
-import com.example.util.TemporalParser;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

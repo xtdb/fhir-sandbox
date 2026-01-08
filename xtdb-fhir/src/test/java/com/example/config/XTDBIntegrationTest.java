@@ -1,4 +1,4 @@
-package com.example;
+package com.example.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
@@ -11,8 +11,6 @@ import java.sql.Statement;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import com.example.config.DatabaseConfig;
 
 /**
  * Integration tests that connect to a real XTDB instance.

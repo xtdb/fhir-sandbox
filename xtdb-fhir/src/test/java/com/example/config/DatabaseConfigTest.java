@@ -1,4 +1,4 @@
-package com.example;
+package com.example.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -8,8 +8,6 @@ import java.sql.SQLException;
 import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
-
-import com.example.config.DatabaseConfig;
 
 // Unit tests for DatabaseConfig using an H2 in-memory database
 public class DatabaseConfigTest {
