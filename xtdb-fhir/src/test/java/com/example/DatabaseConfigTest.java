@@ -16,7 +16,7 @@ public class DatabaseConfigTest {
 
   // Asserting that the connection pool initialises and returns a valid connection
   @Test
-  public void initialisesAndReturnsConnection() throws SQLException {
+  public void initialiseConnection() throws SQLException {
     try (DatabaseConfig dbConfig = new TestDatabaseConfig()) {
       Connection conn = dbConfig.getConnection();
 
@@ -29,7 +29,7 @@ public class DatabaseConfigTest {
 
   // Asserting that isClosed returns false when pool is open
   @Test
-  public void isClosedReturnsFalseWhenOpen() {
+  public void isClosedReturnsFalse() {
     try (DatabaseConfig dbConfig = new TestDatabaseConfig()) {
       assertThat(dbConfig.isClosed()).isFalse();
     }
@@ -37,21 +37,21 @@ public class DatabaseConfigTest {
 
   // Asserting that isClosed returns true after close is called
   @Test
-  public void isClosedReturnsTrueAfterClose() {
-    DatabaseConfig config = new TestDatabaseConfig();
-    config.close();
+  public void isClosedReturnsTrue() {
+    DatabaseConfig dbConfig = new TestDatabaseConfig();
+    dbConfig.close();
 
-    assertThat(config.isClosed()).isTrue();
+    assertThat(dbConfig.isClosed()).isTrue();
   }
 
   // Asserting that connections are returned to the pool when closed
   @Test
   public void connectionReturnedToPool() throws SQLException {
-    try (DatabaseConfig config = new TestDatabaseConfig()) {
-      Connection conn1 = config.getConnection();
+    try (DatabaseConfig dbConfig = new TestDatabaseConfig()) {
+      Connection conn1 = dbConfig.getConnection();
       conn1.close();
 
-      Connection conn2 = config.getConnection();
+      Connection conn2 = dbConfig.getConnection();
       conn2.close();
 
       // If connections weren't returned, pool would be exhausted
@@ -61,26 +61,26 @@ public class DatabaseConfigTest {
 
   // Asserting that getConnection throws SQLException when pool is closed
   @Test
-  public void getConnectionThrowsWhenClosed() {
-    DatabaseConfig config = new TestDatabaseConfig();
-    config.close();
+  public void exceptionThrown() {
+    DatabaseConfig dbConfig = new TestDatabaseConfig();
+    dbConfig.close();
 
-    assertThatThrownBy(config::getConnection)
+    assertThatThrownBy(dbConfig::getConnection)
         .isInstanceOf(SQLException.class);
   }
 
   // Asserting that try-with-resources closes the pool automatically
   @Test
-  public void tryWithResourcesClosesPool() {
-    DatabaseConfig config;
+  public void tryWithResourcesClose() {
+    DatabaseConfig dbConfig;
 
     try (DatabaseConfig db = new TestDatabaseConfig()) {
-      config = db;
+      dbConfig = db;
       assertThat(db.isClosed()).isFalse();
     }
 
-    assertThat(config.isClosed()).isTrue();
-    config.close(); // Added so IDE doesn't complain about unclosed resources
+    assertThat(dbConfig.isClosed()).isTrue();
+    dbConfig.close(); // Added so IDE doesn't complain about unclosed resources
   }
 
   // Test helper class that uses H2 in-memory database
