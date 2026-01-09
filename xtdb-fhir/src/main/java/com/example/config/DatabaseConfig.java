@@ -41,7 +41,7 @@ public class DatabaseConfig implements AutoCloseable {
   
   /**
    * Create a database connection pool from the given properties
-   * 
+   *
    * @param props The properties to use
    * @return The created HikariDataSource
    */
@@ -51,11 +51,11 @@ public class DatabaseConfig implements AutoCloseable {
     // Use direct URL if provided, otherwise build from components
     String jdbcUrl = props.getProperty("db.url");
     if (jdbcUrl == null) {
-      // Build JDBC URL Defaults - XTDB uses PostgreSQL wire protocol
+      // Build JDBC URL Defaults using XTDB driver for full XTDB feature support
       String host = props.getProperty("db.host", "localhost");
       String port = props.getProperty("db.port", "5434");
       String database = props.getProperty("db.name", "xtdb");
-      jdbcUrl = String.format("jdbc:postgresql://%s:%s/%s", host, port, database);
+      jdbcUrl = String.format("jdbc:xtdb://%s:%s/%s", host, port, database);
     }
     config.setJdbcUrl(jdbcUrl);
 

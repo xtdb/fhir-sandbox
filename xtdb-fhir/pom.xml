@@ -21,6 +21,7 @@
     <maven.compiler.target>${java.version}</maven.compiler.target>
 
     <jackson.version>2.17.0</jackson.version>
+    <xtdb.version>2.x-SNAPSHOT</xtdb.version>
     <postgresql.version>42.7.3</postgresql.version>
     <hikaricp.version>5.1.0</hikaricp.version>
     <logback.version>1.5.3</logback.version>
@@ -29,6 +30,13 @@
     <assertj.version>3.25.3</assertj.version>
     <h2.version>2.2.224</h2.version>
   </properties>
+
+  <repositories>
+    <repository>
+      <id>sonatype-snapshots</id>
+      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+    </repository>
+  </repositories>
 
   <dependencies>
       <!-- JSON Processing -->
@@ -44,6 +52,13 @@
       </dependency>
 
       <!-- Database -->
+      <!-- XTDB JDBC Driver (includes PostgreSQL driver) -->
+      <dependency>
+          <groupId>com.xtdb</groupId>
+          <artifactId>xtdb-api</artifactId>
+          <version>${xtdb.version}</version>
+      </dependency>
+      <!-- PostgreSQL JDBC Driver (fallback/compatibility) -->
       <dependency>
           <groupId>org.postgresql</groupId>
           <artifactId>postgresql</artifactId>
