@@ -257,7 +257,10 @@ public class FHIRImportService {
     }
     if (periodEnd != null) {
       record.put("period_end", periodEnd);
-      record.put("_valid_to", periodEnd);  // XTDB temporal bound
+      // Only set _valid_to if different from _valid_from (XTDB requires valid_to > valid_from)
+      if (!periodEnd.equals(periodStart)) {
+        record.put("_valid_to", periodEnd);  // XTDB temporal bound
+      }
     }
 
     record.set("data", resource);
@@ -309,7 +312,8 @@ public class FHIRImportService {
     }
 
     String abatementDateTime = JsonUtil.getText(resource, "abatementDateTime");
-    if (abatementDateTime != null) {
+    // Only set _valid_to if different from _valid_from (XTDB requires valid_to > valid_from)
+    if (abatementDateTime != null && !abatementDateTime.equals(onsetDateTime)) {
       record.put("_valid_to", abatementDateTime);
     }
     // Note: _valid_to is null/absent for ongoing conditions: XTDB handles this correctly
