@@ -8,7 +8,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import org.postgresql.util.PGobject;
@@ -17,8 +19,8 @@ import org.slf4j.LoggerFactory;
 
 import com.example.config.DatabaseConfig;
 import com.example.util.JsonUtil;
-// import com.example.util.TemporalParser; // Need to implement if necessary
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 // Service that imports FHIR JSON bundles into XTDB.
@@ -38,6 +40,7 @@ public class FHIRImportService {
   private int patientsInserted = 0;
   private int encountersInserted = 0;
   private int conditionsInserted = 0;
+  private int otherResourcesStored = 0;
   private int errors = 0;
 
   // Constructor that initialises the database configuration
@@ -114,9 +117,11 @@ public class FHIRImportService {
 
   /**
    * Process all entries in a FHIR Bundle.
-   * 
+   *
    * Collects resources by type and inserts in batches for better performance.
-   * 
+   * Other resource types (not Patient/Encounter/Condition) are bundled into
+   * the patient record's "data" field for future use.
+   *
    * @param bundle The FHIR Bundle to process
    * @param conn The database connection to use for insertion
    * @throws SQLException If there is an error processing the bundle
@@ -128,10 +133,11 @@ public class FHIRImportService {
       return;
     }
 
-    // Collect resources by type for batch processing, much more efficient
-    List<ObjectNode> patients = new ArrayList<>();
-    List<ObjectNode> encounters = new ArrayList<>();
-    List<ObjectNode> conditions = new ArrayList<>();
+    // First pass: now collecting raw resources to help group "other" resources by patient
+    List<JsonNode> patientResources = new ArrayList<>();
+    List<JsonNode> encounterResources = new ArrayList<>();
+    List<JsonNode> conditionResources = new ArrayList<>();
+    Map<String, List<JsonNode>> otherResourcesByPatient = new HashMap<>();
 
     for (JsonNode entry : entries) {
       JsonNode resource = entry.get("resource");
@@ -139,15 +145,56 @@ public class FHIRImportService {
 
       String type = JsonUtil.getText(resource, "resourceType");
 
+      switch (type) {
+        case "Patient" -> patientResources.add(resource);
+        case "Encounter" -> encounterResources.add(resource);
+        case "Condition" -> conditionResources.add(resource);
+        default -> {
+          // Collect other resources grouped by their patient reference
+          String patientId = extractPatientIdFromResource(resource);
+          if (patientId != null) {
+            otherResourcesByPatient
+                .computeIfAbsent(patientId, k -> new ArrayList<>())
+                .add(resource);
+            logger.trace("Collected {} for patient {}", type, patientId);
+          } else {
+            logger.trace("Skipping {} - no patient reference found", type);
+          }
+        }
+      }
+    }
+
+    // Second pass: building the records, attaching other resources to just the patients table
+    List<ObjectNode> patients = new ArrayList<>();
+    List<ObjectNode> encounters = new ArrayList<>();
+    List<ObjectNode> conditions = new ArrayList<>();
+
+    for (JsonNode resource : patientResources) {
       try {
-        switch (type) {
-          case "Patient" -> patients.add(buildPatientRecord(resource));
-          case "Encounter" -> encounters.add(buildEncounterRecord(resource));
-          case "Condition" -> conditions.add(buildConditionRecord(resource));
-          default -> logger.trace("Skipping resource type: {}", type);
+        String patientId = JsonUtil.getText(resource, "id");
+        List<JsonNode> allOtherResources = otherResourcesByPatient.get(patientId);
+        patients.add(buildPatientRecord(resource, allOtherResources));
+        if (allOtherResources != null) {
+          otherResourcesStored += allOtherResources.size();
         }
       } catch (Exception e) {
-        logger.warn("Failed to build {} record: {}", type, e.getMessage());
+        logger.warn("Failed to build Patient record: {}", e.getMessage());
+      }
+    }
+
+    for (JsonNode resource : encounterResources) {
+      try {
+        encounters.add(buildEncounterRecord(resource));
+      } catch (Exception e) {
+        logger.warn("Failed to build Encounter record: {}", e.getMessage());
+      }
+    }
+
+    for (JsonNode resource : conditionResources) {
+      try {
+        conditions.add(buildConditionRecord(resource));
+      } catch (Exception e) {
+        logger.warn("Failed to build Condition record: {}", e.getMessage());
       }
     }
 
@@ -163,9 +210,37 @@ public class FHIRImportService {
   }
 
   /**
+   * Extract patient ID from a resource's subject or patient reference.
+   * Most FHIR resources reference their patient via "subject" or "patient" field.
+   * Handles both "Patient/id" format and "urn:uuid:id" format (used by Synthea).
+   * Without this check, all the other resources can't be stored properly for the patient.
+   *
+   * @param resource The FHIR resource to extract the patient ID from
+   * @return The patient ID or null if not found
+   */
+  private String extractPatientIdFromResource(JsonNode resource) {
+    // Try common reference fields
+    String ref = JsonUtil.getText(resource, "subject", "reference");
+    if (ref == null) {
+      ref = JsonUtil.getText(resource, "patient", "reference");
+    }
+    // Accept any reference: extractIdFromReference handles both
+    // "Patient/id" and "urn:uuid:id" formats correctly
+    if (ref != null) {
+      return extractIdFromReference(ref);
+    }
+    return null;
+  }
+
+  /**
    * Insert a batch of records using XTDB RECORDS syntax.
-   * 
    * Uses PGobject with "json" type for efficient JSON transfer.
+   *
+   * @param conn The database connection
+   * @param sql The SQL statement for insertion
+   * @param records The list of records to insert
+   * @param type The type of records being inserted (Patient/Encounter/Condition)
+   * @throws SQLException If there is a database error
    */
   private void insertBatch(Connection conn, String sql, List<ObjectNode> records, String type) 
       throws SQLException {
@@ -191,17 +266,21 @@ public class FHIRImportService {
 
   /**
    * Build a Patient record for XTDB insertion.
-   * 
+   *
    * Structure:
    * {
    *   "_id": "...",
    *   "name": "John Smith",
    *   "gender": "male",
    *   "birth_date": "1985-03-15",
-   *   "data": { ...full FHIR Patient resource... }
+   *   "patient_data": { ...full FHIR Patient resource... },
+   *   "data": [ ...other FHIR resources for this patient... ]
    * }
+   *
+   * @param resource The FHIR Patient resource
+   * @param allOtherResources Other FHIR resources associated with this patient (may be null)
    */
-  ObjectNode buildPatientRecord(JsonNode resource) {
+  ObjectNode buildPatientRecord(JsonNode resource, List<JsonNode> allOtherResources) {
     ObjectNode record = JsonUtil.getMapper().createObjectNode();
 
     record.put("_id", JsonUtil.getText(resource, "id"));
@@ -214,8 +293,17 @@ public class FHIRImportService {
       record.put("birth_date", birthDate);
     }
 
-    // Store full FHIR resource in data field
-    record.set("data", resource);
+    // Store full FHIR Patient resource in patient_data field
+    record.set("patient_data", resource);
+
+    // Store all other resources in data field as an array
+    if (allOtherResources != null && !allOtherResources.isEmpty()) {
+      ArrayNode dataArray = JsonUtil.getMapper().createArrayNode();
+      for (JsonNode otherResource : allOtherResources) {
+        dataArray.add(otherResource);
+      }
+      record.set("data", dataArray);
+    }
 
     return record;
   }
@@ -232,7 +320,7 @@ public class FHIRImportService {
    *   "period_end": "2023-01-15T11:00:00Z",
    *   "_valid_from": "2023-01-15T10:00:00Z",
    *   "_valid_to": "2023-01-15T11:00:00Z",
-   *   "data": { ...full FHIR Encounter resource... }
+   *   "encounter_data": { ...full FHIR Encounter resource... }
    * }
    * 
    * Structure includes _valid_from/_valid_to for XTDB temporal queries.
@@ -263,7 +351,7 @@ public class FHIRImportService {
       }
     }
 
-    record.set("data", resource);
+    record.set("encounter_data", resource);
 
     return record;
   }
@@ -281,7 +369,7 @@ public class FHIRImportService {
    *   "onset_date_time": "2023-01-15T10:00:00Z",
    *   "_valid_from": "2023-01-15T10:00:00Z",
    *   "_valid_to": "2023-06-15T10:00:00Z",
-   *   "data": { ...full FHIR Condition resource... }
+   *   "condition_data": { ...full FHIR Condition resource... }
    * }
    * 
    * Conditions are imo ideal for demonstrating XTDB bitemporality:
@@ -318,7 +406,7 @@ public class FHIRImportService {
     }
     // Note: _valid_to is null/absent for ongoing conditions: XTDB handles this correctly
 
-    record.set("data", resource);
+    record.set("condition_data", resource);
 
     return record;
   }
@@ -412,12 +500,13 @@ public class FHIRImportService {
 
   private void logSummary(long duration) {
     logger.info("========================================");
-    logger.info("Import complete in {} ms", duration);
-    logger.info("Files processed: {}", filesProcessed);
-    logger.info("Patients:        {}", patientsInserted);
-    logger.info("Encounters:      {}", encountersInserted);
-    logger.info("Conditions:      {}", conditionsInserted);
-    logger.info("Errors:          {}", errors);
+    logger.info("Import complete in  {} ms", duration);
+    logger.info("Files processed:    {}", filesProcessed);
+    logger.info("Patients:           {}", patientsInserted);
+    logger.info("Encounters:         {}", encountersInserted);
+    logger.info("Conditions:         {}", conditionsInserted);
+    logger.info("All Other Resources:{}", otherResourcesStored);
+    logger.info("Errors:             {}", errors);
     logger.info("========================================");
   }
 
@@ -429,5 +518,6 @@ public class FHIRImportService {
   public int getPatientsInserted() { return patientsInserted; }
   public int getEncountersInserted() { return encountersInserted; }
   public int getConditionsInserted() { return conditionsInserted; }
+  public int getOtherResourcesStored() { return otherResourcesStored; }
   public int getErrors() { return errors; }
 }

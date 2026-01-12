@@ -1,11 +1,8 @@
 package com.example;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Properties;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +13,11 @@ import com.example.service.FHIRImportService;
 /**
  * Main entry point for the FHIR to XTDB importer.
  *
- * All business logic lives in FHIRImportService.
+ * Usage: Compile with 'mvn clean package -DskipTests'
+ * Then: java -jar target/xtdb-fhir-1.0-SNAPSHOT.jar <input-directory>
+ *
+ * Currently supports batch import from a directory when specified as a command line argument.
+ * Future: Possible Kafka streaming integration will use FHIRImportService directly?
  */
 public class Application {
 
@@ -27,9 +28,14 @@ public class Application {
     logger.info("   FHIR to XTDB Importer");
     logger.info("================================================");
 
-    // Determine input directory from args or properties
-    Path inputPath = getInputDirectory(args);
+    // Require CLI argument for directory import
+    if (args.length == 0) {
+      logger.info("No input directory specified.");
+      logger.info("Usage: java -jar target/xtdb-fhir-1.0-SNAPSHOT.jar <input-directory>");
+      return;
+    }
 
+    Path inputPath = Paths.get(args[0]);
     logger.info("Input directory: {}", inputPath.toAbsolutePath());
 
     // Validate input directory exists
@@ -60,27 +66,4 @@ public class Application {
 
     logger.info("Application finished successfully");
   }
-
-  // Determine input directory from command-line args or application.properties
-  private static Path getInputDirectory(String[] args) {
-    // Command line argument takes precedence
-    if (args.length > 0) {
-      return Paths.get(args[0]);
-    }
-
-    // Otherwise use application.properties
-    Properties props = new Properties();
-    try (InputStream is = Application.class.getClassLoader()
-            .getResourceAsStream("application.properties")) {
-      if (is != null) {
-        props.load(is);
-      }
-    } catch (IOException e) {
-      logger.debug("Could not load application.properties: {}", e.getMessage());
-    }
-
-    String inputDir = props.getProperty("import.input.directory", "data/fhir");
-    return Paths.get(inputDir);
-  }
 }
-
