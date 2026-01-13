@@ -1,0 +1,133 @@
+nodeCount: 3
+
+image:
+  repository: ghcr.io/xtdb/xtdb-aws
+  tag: nightly
+  pullPolicy: IfNotPresent
+
+nodeSelector:
+  node_pool: "xtdbpool"
+
+tolerations: []
+
+affinity: {}
+
+resources:
+  limits:
+    cpu: "1000m"
+    memory: "10G"
+    ephemeral-storage: 100Gi
+  requests:
+    cpu: "750m"
+    memory: "10G"
+    ephemeral-storage: 100Gi
+
+podSecurityContext:
+  runAsUser: 20000
+  runAsGroup: 20000
+  fsGroup: 20000
+  runAsNonRoot: true
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+xtdbConfig:
+  # REQUIRED
+  # Kubernetes Service Account configured with Workload Identity Federation wih access to Azure Storage
+  serviceAccount: ""
+  # AWS S3 Bucket Name
+  s3Bucket: ""
+
+  # Kafka bootstrap servers
+  kafkaBootstrapServers: "kafka-kafka-bootstrap.xtdb-deployment.svc.cluster.local:9092"
+  # XTDB log topic on Kafka 
+  kafkaLogTopic: "xtdb-log"
+
+  # OPTIONAL
+  # JDK options - ensure that heap + direct memory + metaspace <= memory limit, and that some overhead is left for the OS
+  # See https://docs.oracle.com/cd/E13150_01/jrockit_jvm/jrockit/jrdocs/refman/optionX.html
+  jdkOptions: "-Xmx3000m -Xms3000m -XX:MaxDirectMemorySize=3000m -XX:MaxMetaspaceSize=500m"
+
+  # We mount and use the below YAML for configuring the XTDB nodes and their modules.
+  # The !Env values are set by Environment Variables set on the XTDB statefulset pods.
+  # See the XTDB configuration documentation for options: https://docs.xtdb.com/ops/config.html
+  nodeConfig: |-
+    server:
+      host: '*'
+      port: 5432
+
+    flightSql:
+      host: '*'
+      port: 9832
+
+    logClusters:
+      kafkaCluster: !Kafka
+        bootstrapServers: "kafka-kafka-bootstrap.xtdb-deployment.svc.cluster.local:9092"
+
+    log: !Kafka
+      cluster: kafkaCluster
+      topic: "xtdb-log"
+
+    storage: !Remote
+      objectStore: !S3
+        bucket: "xtdb-bucket"
+        prefix: xtdb-object-store
+
+    diskCache:
+      path: /var/lib/xtdb/buffers/disk-cache
+
+    healthz:
+      host: '*'
+      port: 8080
+
+  # Volume size settings for XTDB Local Disk Cache (uses ephemeral storage)
+  localDiskCache:
+    sizeLimit: "50Gi"
+
+  # Extra Env:
+  env:
+    # (ENV_VAR_NAME: Value)
+    XTDB_LOGGING_LEVEL: "info" # See https://docs.xtdb.com/ops/troubleshooting/overview.html
+
+  # Extra EnvFrom sources
+  envFrom: []
+
+startupProbe:
+  httpGet:
+    path: /healthz/started
+    port: 8080
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  failureThreshold: 10 
+
+livenessProbe:
+  httpGet:
+    path: /healthz/alive
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+
+xtdbService:
+  type: ClusterIP
+  server:
+    # Port of the Postgres Wire Server on the nodes
+    targetPort: 5432
+    # Port exposed by the service
+    servicePort: 5432
+  flightSqlServer:
+    # Port of the Flight SQL server on the nodes
+    targetPort: 9832
+    # Port exposed by the service
+    servicePort: 9832
+  healthzServer:
+    # Port of the healthz server on the nodes
+    targetPort: 8080
+    # Port exposed by the service
+    servicePort: 8080
