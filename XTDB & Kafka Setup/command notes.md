@@ -107,3 +107,35 @@ helm install xtdb-aws . \
 ```bash
 kubectl port-forward svc/xtdb-service --namespace xtdb-deployment 5432:5432 & sleep 2; psql "host=localhost port=5432 user=xtdb"; kill %1
 ```
+
+# XTDB AWS Set Down Commands
+
+## Step 1: Delete the Namespace
+
+```bash
+kubectl delete namespace xtdb-deployment
+```
+
+## Step 2: Delete the EKS cluster & Node Groups
+
+This has to be done manually in the AWS Console web interface.
+
+First delete the node groups, which are located within the cluster, towards the bottom of the 'compute' section.
+
+Then delete the cluster on the EKS page.
+
+# Step 3: Delete the S3 Bucket
+
+Can also be done manually in the AWS Console.
+
+Delete the bucket on the S3 page.
+
+# Step 4: Delete the IAM Roles & Policies
+
+Go to the IAM page, then Roles, and delete all the roles that have XTDB in their name.
+
+Then go to the Policies, and delete all of them.
+
+# Step 5: Delete the VPC & it's Subnets
+
+Go to the VPC page, and delete the VPC. This will also delete the subnets within it.
