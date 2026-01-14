@@ -1,0 +1,27 @@
+server:
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+  persistentVolume:
+    enabled: false
+
+alertmanager:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+prometheus-node-exporter:
+  enabled: false
+
+extraScrapeConfigs: |
+  - job_name: 'xtdb'
+    static_configs:
+      - targets:
+        - 'xtdb-statefulset-0.xtdb-service.xtdb-deployment.svc.cluster.local:8080'
+        - 'xtdb-statefulset-1.xtdb-service.xtdb-deployment.svc.cluster.local:8080'
+        - 'xtdb-statefulset-2.xtdb-service.xtdb-deployment.svc.cluster.local:8080'
