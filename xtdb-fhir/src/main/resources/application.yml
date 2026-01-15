@@ -1,0 +1,26 @@
+synthea-feeder:
+  interval-seconds: 10
+
+logging:
+  level:
+#    org.springframework.beans: DEBUG
+    io.awspring.cloud.paramstore: DEBUG
+    org.springframework.cloud.aws: DEBUG
+
+spring:
+  jmx:
+    enabled: true
+
+  cloud:
+    aws:
+      parameterstore:
+        enabled: true  # Disable for local dev
+
+management:
+  endpoints:
+    jmx:
+      exposure:
+        include: '*'
+    web:
+      exposure:
+        include: refresh
