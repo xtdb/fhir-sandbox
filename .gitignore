@@ -7,3 +7,4 @@ logs
 *.tfstate
 *.tfstate.backup
 *.tfstate.*.backup
+.claude/settings.local.json

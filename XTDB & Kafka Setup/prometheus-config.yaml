@@ -1,4 +1,7 @@
 server:
+  # Force Prometheus to run in eu-west-1a (same AZ as the NLB static IP)
+  nodeSelector:
+    topology.kubernetes.io/zone: eu-west-1a
   service:
     type: LoadBalancer
     annotations:
