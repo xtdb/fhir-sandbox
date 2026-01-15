@@ -100,6 +100,14 @@ helm install xtdb-aws . \
   --set xtdbConfig.s3Bucket="xtdb-bucket"
 ```
 
+## Step 7.5: Prometheus Configuration
+
+```bash
+helm install prometheus prometheus-community/prometheus \
+  --namespace xtdb-deployment \
+  -f prometheus-config.yaml
+```
+
 ## Step 8: Connect to XTDB
 
 **Note: We use clusterIP for the service, not load balancer, so it's not accessible from outside the cluster, thus the port-forwarding**

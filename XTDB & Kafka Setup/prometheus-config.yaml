@@ -2,7 +2,11 @@ server:
   service:
     type: LoadBalancer
     annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
       service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+      # Set a static private IP address for the load balancer, that will persist across reboots for Grafana to connect to!
+      service.beta.kubernetes.io/aws-load-balancer-private-ipv4-addresses: "10.0.4.200"
+      service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-0fea78d9788180ab5"
   persistentVolume:
     enabled: false
 
