@@ -126,7 +126,7 @@ public class FHIRImportService {
    * @param conn The database connection to use for insertion
    * @throws SQLException If there is an error processing the bundle
    */
-  private void processBundle(JsonNode bundle, Connection conn) throws SQLException {
+  public void processBundle(JsonNode bundle, Connection conn) throws SQLException {
     JsonNode entries = bundle.get("entry");
     if (entries == null || !entries.isArray()) {
       logger.warn("Bundle has no entries");

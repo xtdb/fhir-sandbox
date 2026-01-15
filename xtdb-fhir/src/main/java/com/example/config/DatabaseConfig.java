@@ -24,7 +24,7 @@ public class DatabaseConfig implements AutoCloseable {
   }
 
   // Constructor with custom properties
-  protected DatabaseConfig(Properties props) {
+  public DatabaseConfig(Properties props) {
     this.dataSource = createDataSource(props);
     logger.info("Database connection pool initialised");
   }
