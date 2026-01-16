@@ -2,10 +2,12 @@ package com.example.util;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.Map;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 public final class JsonUtil {
@@ -73,6 +75,29 @@ public final class JsonUtil {
    */
   public static String toJsonString(JsonNode node) throws IOException {
     return MAPPER.writeValueAsString(node);
+  }
+
+  public static void convertKeysToSnakeCase(JsonNode node) {
+    if (node.isObject()) {
+      Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+      var fieldNames = new ArrayList<String>();
+      fields.forEachRemaining(entry -> fieldNames.add(entry.getKey()));
+
+      for (String fieldName : fieldNames) {
+        JsonNode value = ((ObjectNode) node).remove(fieldName);
+        ((ObjectNode) node).set(toSnakeCase(fieldName), value);
+
+        convertKeysToSnakeCase(value);
+      }
+    } else if (node.isArray()) {
+      for (JsonNode element : node) {
+        convertKeysToSnakeCase(element);
+      }
+    }
+  }
+
+  public static String toSnakeCase(String s) {
+    return PropertyNamingStrategies.SnakeCaseStrategy.INSTANCE.translate(s);
   }
 }
 

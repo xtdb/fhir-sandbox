@@ -10,9 +10,9 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.databind.node.TextNode;
 import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -127,86 +127,72 @@ public class FHIRImportService {
    * @throws SQLException If there is an error processing the bundle
    */
   public void processBundle(JsonNode bundle, Connection conn) throws SQLException {
-    JsonNode entries = bundle.get("entry");
-    if (entries == null || !entries.isArray()) {
-      logger.warn("Bundle has no entries");
-      return;
+    var resourcesByType = extractResourcesByType(bundle);
+
+    for (var mapEntry : resourcesByType.entrySet()) {
+      var resourceType = mapEntry.getKey();
+      var resources = mapEntry.getValue();
+      insertBatch(conn, String.format("INSERT INTO %s RECORDS ?", resourceType), resources);
+      logger.info("inserted {} resources of type {}", resources.size(), resourceType);
     }
+  }
 
-    // First pass: now collecting raw resources to help group "other" resources by patient
-    List<JsonNode> patientResources = new ArrayList<>();
-    List<JsonNode> encounterResources = new ArrayList<>();
-    List<JsonNode> conditionResources = new ArrayList<>();
-    Map<String, List<JsonNode>> otherResourcesByPatient = new HashMap<>();
+  public HashMap<String, List<JsonNode>> extractResourcesByType(JsonNode bundle) {
+    var resourcesByType = new HashMap<String, List<JsonNode>>();
 
-    for (JsonNode entry : entries) {
-      JsonNode resource = entry.get("resource");
-      if (resource == null) continue;
+    for (JsonNode entry : bundle.get("entry")) {
+      var resource = (ObjectNode) entry.get("resource");
+      var resourceType = JsonUtil.getText(resource, "resourceType");
 
-      String type = JsonUtil.getText(resource, "resourceType");
+      setReferenceAsId(resource, "subject");
+      setReferenceAsId(resource, "patient");
 
-      switch (type) {
-        case "Patient" -> patientResources.add(resource);
-        case "Encounter" -> encounterResources.add(resource);
-        case "Condition" -> conditionResources.add(resource);
-        default -> {
-          // Collect other resources grouped by their patient reference
-          String patientId = extractPatientIdFromResource(resource);
-          if (patientId != null) {
-            otherResourcesByPatient
-                .computeIfAbsent(patientId, k -> new ArrayList<>())
-                .add(resource);
-            logger.trace("Collected {} for patient {}", type, patientId);
-          } else {
-            logger.trace("Skipping {} - no patient reference found", type);
-          }
-        }
-      }
+      JsonUtil.convertKeysToSnakeCase(resource);
+      resource.set("_id", resource.get("id")); // must be done after snake_case is applied to keys
+      resourcesByType.computeIfAbsent(JsonUtil.toSnakeCase(resourceType), k -> new ArrayList<>()).add(resource);
     }
 
     // Second pass: building the records, attaching other resources to just the patients table
-    List<ObjectNode> patients = new ArrayList<>();
-    List<ObjectNode> encounters = new ArrayList<>();
-    List<ObjectNode> conditions = new ArrayList<>();
+//    List<ObjectNode> patients = new ArrayList<>();
+//    List<ObjectNode> encounters = new ArrayList<>();
+//    List<ObjectNode> conditions = new ArrayList<>();
+//
+//    for (JsonNode resource : patientResources) {
+//      try {
+//        String patientId = JsonUtil.getText(resource, "id");
+//        List<JsonNode> allOtherResources = otherResourcesByPatient.get(patientId);
+//        patients.add(buildPatientRecord(resource, allOtherResources));
+//        if (allOtherResources != null) {
+//          otherResourcesStored += allOtherResources.size();
+//        }
+//      } catch (Exception e) {
+//        logger.warn("Failed to build Patient record: {}", e.getMessage());
+//      }
+//    }
+//
+//    for (JsonNode resource : encounterResources) {
+//      try {
+//        encounters.add(buildEncounterRecord(resource));
+//      } catch (Exception e) {
+//        logger.warn("Failed to build Encounter record: {}", e.getMessage());
+//      }
+//    }
+//
+//    for (JsonNode resource : conditionResources) {
+//      try {
+//        conditions.add(buildConditionRecord(resource));
+//      } catch (Exception e) {
+//        logger.warn("Failed to build Condition record: {}", e.getMessage());
+//      }
+//    }
+    return resourcesByType;
+  }
 
-    for (JsonNode resource : patientResources) {
-      try {
-        String patientId = JsonUtil.getText(resource, "id");
-        List<JsonNode> allOtherResources = otherResourcesByPatient.get(patientId);
-        patients.add(buildPatientRecord(resource, allOtherResources));
-        if (allOtherResources != null) {
-          otherResourcesStored += allOtherResources.size();
-        }
-      } catch (Exception e) {
-        logger.warn("Failed to build Patient record: {}", e.getMessage());
-      }
+  private void setReferenceAsId(ObjectNode resource, String topProperty) {
+    var subjectRef = JsonUtil.getText(resource, topProperty, "reference");
+    if (subjectRef != null) {
+      resource.set(topProperty + "_id", new TextNode(extractIdFromReference(subjectRef)));
     }
-
-    for (JsonNode resource : encounterResources) {
-      try {
-        encounters.add(buildEncounterRecord(resource));
-      } catch (Exception e) {
-        logger.warn("Failed to build Encounter record: {}", e.getMessage());
-      }
-    }
-
-    for (JsonNode resource : conditionResources) {
-      try {
-        conditions.add(buildConditionRecord(resource));
-      } catch (Exception e) {
-        logger.warn("Failed to build Condition record: {}", e.getMessage());
-      }
-    }
-
-    // Insert batches
-    insertBatch(conn, InsertPatientSQL, patients, "Patient");
-    patientsInserted += patients.size();
-
-    insertBatch(conn, InsertEncounterSQL, encounters, "Encounter");
-    encountersInserted += encounters.size();
-
-    insertBatch(conn, InsertConditionSQL, conditions, "Condition");
-    conditionsInserted += conditions.size();
   }
 
   /**
@@ -239,15 +225,14 @@ public class FHIRImportService {
    * @param conn The database connection
    * @param sql The SQL statement for insertion
    * @param records The list of records to insert
-   * @param type The type of records being inserted (Patient/Encounter/Condition)
    * @throws SQLException If there is a database error
    */
-  private void insertBatch(Connection conn, String sql, List<ObjectNode> records, String type) 
+  private void insertBatch(Connection conn, String sql, List<JsonNode> records)
       throws SQLException {
     if (records.isEmpty()) return;
 
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
-      for (ObjectNode record : records) {
+      for (var record : records) {
         PGobject jsonObject = new PGobject();
         jsonObject.setType("json");
         jsonObject.setValue(record.toString());
@@ -256,7 +241,6 @@ public class FHIRImportService {
         ps.addBatch();
       }
       ps.executeBatch();
-      logger.debug("Inserted {} {} records", records.size(), type);
     }
   }
 
@@ -478,10 +462,6 @@ public class FHIRImportService {
   }
 
   String extractIdFromReference(String reference) {
-    if (reference == null || reference.isBlank()) {
-      return null;
-    }
-
     if (reference.startsWith("urn:uuid:")) {
       return reference.substring("urn:uuid:".length());
     }
