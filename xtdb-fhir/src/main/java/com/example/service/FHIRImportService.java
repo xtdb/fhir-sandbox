@@ -8,9 +8,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Stream;
 
 import org.postgresql.util.PGobject;
@@ -20,7 +18,6 @@ import org.slf4j.LoggerFactory;
 import com.example.config.DatabaseConfig;
 import com.example.util.JsonUtil;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 // Service that imports FHIR JSON bundles into XTDB.
@@ -40,7 +37,6 @@ public class FHIRImportService {
   private int patientsInserted = 0;
   private int encountersInserted = 0;
   private int conditionsInserted = 0;
-  private int otherResourcesStored = 0;
   private int errors = 0;
 
   // Constructor that initialises the database configuration
@@ -96,9 +92,10 @@ public class FHIRImportService {
       }
 
       try (Connection conn = dbConfig.getConnection()) {
-        conn.setAutoCommit(false);
+        // Use auto-commit so each batch insert is its own transaction
+        // This prevents large patient files from exceeding Kafka's 1MB message limit
+        conn.setAutoCommit(true);
         processBundle(root, conn);
-        conn.commit();
         filesProcessed++;
       } catch (SQLException e) {
         logger.error("Database error processing {}: {}", file.getName(), e.getMessage());
@@ -119,8 +116,6 @@ public class FHIRImportService {
    * Process all entries in a FHIR Bundle.
    *
    * Collects resources by type and inserts in batches for better performance.
-   * Other resource types (not Patient/Encounter/Condition) are bundled into
-   * the patient record's "data" field for future use.
    *
    * @param bundle The FHIR Bundle to process
    * @param conn The database connection to use for insertion
@@ -133,11 +128,10 @@ public class FHIRImportService {
       return;
     }
 
-    // First pass: now collecting raw resources to help group "other" resources by patient
+    // First pass: collect resources by type
     List<JsonNode> patientResources = new ArrayList<>();
     List<JsonNode> encounterResources = new ArrayList<>();
     List<JsonNode> conditionResources = new ArrayList<>();
-    Map<String, List<JsonNode>> otherResourcesByPatient = new HashMap<>();
 
     for (JsonNode entry : entries) {
       JsonNode resource = entry.get("resource");
@@ -149,34 +143,18 @@ public class FHIRImportService {
         case "Patient" -> patientResources.add(resource);
         case "Encounter" -> encounterResources.add(resource);
         case "Condition" -> conditionResources.add(resource);
-        default -> {
-          // Collect other resources grouped by their patient reference
-          String patientId = extractPatientIdFromResource(resource);
-          if (patientId != null) {
-            otherResourcesByPatient
-                .computeIfAbsent(patientId, k -> new ArrayList<>())
-                .add(resource);
-            logger.trace("Collected {} for patient {}", type, patientId);
-          } else {
-            logger.trace("Skipping {} - no patient reference found", type);
-          }
-        }
+        default -> logger.trace("Skipping resource type: {}", type);
       }
     }
 
-    // Second pass: building the records, attaching other resources to just the patients table
+    // Second pass: build records
     List<ObjectNode> patients = new ArrayList<>();
     List<ObjectNode> encounters = new ArrayList<>();
     List<ObjectNode> conditions = new ArrayList<>();
 
     for (JsonNode resource : patientResources) {
       try {
-        String patientId = JsonUtil.getText(resource, "id");
-        List<JsonNode> allOtherResources = otherResourcesByPatient.get(patientId);
-        patients.add(buildPatientRecord(resource, allOtherResources));
-        if (allOtherResources != null) {
-          otherResourcesStored += allOtherResources.size();
-        }
+        patients.add(buildPatientRecord(resource));
       } catch (Exception e) {
         logger.warn("Failed to build Patient record: {}", e.getMessage());
       }
@@ -209,32 +187,14 @@ public class FHIRImportService {
     conditionsInserted += conditions.size();
   }
 
-  /**
-   * Extract patient ID from a resource's subject or patient reference.
-   * Most FHIR resources reference their patient via "subject" or "patient" field.
-   * Handles both "Patient/id" format and "urn:uuid:id" format (used by Synthea).
-   * Without this check, all the other resources can't be stored properly for the patient.
-   *
-   * @param resource The FHIR resource to extract the patient ID from
-   * @return The patient ID or null if not found
-   */
-  private String extractPatientIdFromResource(JsonNode resource) {
-    // Try common reference fields
-    String ref = JsonUtil.getText(resource, "subject", "reference");
-    if (ref == null) {
-      ref = JsonUtil.getText(resource, "patient", "reference");
-    }
-    // Accept any reference: extractIdFromReference handles both
-    // "Patient/id" and "urn:uuid:id" formats correctly
-    if (ref != null) {
-      return extractIdFromReference(ref);
-    }
-    return null;
-  }
+  // Kafka message size limit (1MB) - records larger than this will fail on AWS
+  private static final int kafkaMessageSizeLimit = 1048576;
 
   /**
    * Insert a batch of records using XTDB RECORDS syntax.
    * Uses PGobject with "json" type for efficient JSON transfer.
+   * If a record exceeds Kafka's 1MB limit, removes the raw FHIR data field
+   * and retries with just the extracted fields.
    *
    * @param conn The database connection
    * @param sql The SQL statement for insertion
@@ -242,21 +202,48 @@ public class FHIRImportService {
    * @param type The type of records being inserted (Patient/Encounter/Condition)
    * @throws SQLException If there is a database error
    */
-  private void insertBatch(Connection conn, String sql, List<ObjectNode> records, String type) 
+  private void insertBatch(Connection conn, String sql, List<ObjectNode> records, String type)
       throws SQLException {
     if (records.isEmpty()) return;
 
+    // Map type to its corresponding raw data field name
+    String dataFieldName = switch (type) {
+      case "Patient" -> "patient_data";
+      case "Encounter" -> "encounter_data";
+      case "Condition" -> "condition_data";
+      default -> null;
+    };
+
+    int trimmed = 0;
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
       for (ObjectNode record : records) {
+        String jsonValue = record.toString();
+        int size = jsonValue.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+
+        // If too large, remove the raw FHIR data field and keep extracted fields
+        if (size > kafkaMessageSizeLimit && dataFieldName != null) {
+          String id = record.has("_id") ? record.get("_id").asText() : "unknown";
+          logger.warn("{} record {} too large ({}KB) - removing {} field",
+              type, id, size / 1024, dataFieldName);
+          record.remove(dataFieldName);
+          jsonValue = record.toString();
+          trimmed++;
+        }
+
         PGobject jsonObject = new PGobject();
         jsonObject.setType("json");
-        jsonObject.setValue(record.toString());
+        jsonObject.setValue(jsonValue);
 
         ps.setObject(1, jsonObject);
         ps.addBatch();
       }
       ps.executeBatch();
-      logger.debug("Inserted {} {} records", records.size(), type);
+      if (trimmed > 0) {
+        logger.info("Inserted {} {} records ({} trimmed due to size)",
+            records.size(), type, trimmed);
+      } else {
+        logger.debug("Inserted {} {} records", records.size(), type);
+      }
     }
   }
 
@@ -273,14 +260,12 @@ public class FHIRImportService {
    *   "name": "John Smith",
    *   "gender": "male",
    *   "birth_date": "1985-03-15",
-   *   "patient_data": { ...full FHIR Patient resource... },
-   *   "data": [ ...other FHIR resources for this patient... ]
+   *   "patient_data": { ...full FHIR Patient resource... }
    * }
    *
    * @param resource The FHIR Patient resource
-   * @param allOtherResources Other FHIR resources associated with this patient (may be null)
    */
-  ObjectNode buildPatientRecord(JsonNode resource, List<JsonNode> allOtherResources) {
+  ObjectNode buildPatientRecord(JsonNode resource) {
     ObjectNode record = JsonUtil.getMapper().createObjectNode();
 
     record.put("_id", JsonUtil.getText(resource, "id"));
@@ -293,17 +278,8 @@ public class FHIRImportService {
       record.put("birth_date", birthDate);
     }
 
-    // Store full FHIR Patient resource in patient_data field
+    // DISABLED: Full FHIR JSON causes Kafka message size issues
     record.set("patient_data", resource);
-
-    // Store all other resources in data field as an array
-    if (allOtherResources != null && !allOtherResources.isEmpty()) {
-      ArrayNode dataArray = JsonUtil.getMapper().createArrayNode();
-      for (JsonNode otherResource : allOtherResources) {
-        dataArray.add(otherResource);
-      }
-      record.set("data", dataArray);
-    }
 
     return record;
   }
@@ -351,6 +327,7 @@ public class FHIRImportService {
       }
     }
 
+    // DISABLED: Full FHIR JSON causes Kafka message size issues
     record.set("encounter_data", resource);
 
     return record;
@@ -406,6 +383,7 @@ public class FHIRImportService {
     }
     // Note: _valid_to is null/absent for ongoing conditions: XTDB handles this correctly
 
+    // DISABLED: Full FHIR JSON causes Kafka message size issues
     record.set("condition_data", resource);
 
     return record;
@@ -505,7 +483,6 @@ public class FHIRImportService {
     logger.info("Patients:           {}", patientsInserted);
     logger.info("Encounters:         {}", encountersInserted);
     logger.info("Conditions:         {}", conditionsInserted);
-    logger.info("All Other Resources:{}", otherResourcesStored);
     logger.info("Errors:             {}", errors);
     logger.info("========================================");
   }
@@ -518,6 +495,5 @@ public class FHIRImportService {
   public int getPatientsInserted() { return patientsInserted; }
   public int getEncountersInserted() { return encountersInserted; }
   public int getConditionsInserted() { return conditionsInserted; }
-  public int getOtherResourcesStored() { return otherResourcesStored; }
   public int getErrors() { return errors; }
 }

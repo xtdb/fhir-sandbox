@@ -1,12 +1,18 @@
 # XTDB & Kafka Setup Makefile
 # Manages namespace resources for XTDB deployment on AWS EKS
 
+# Namespace settings
 NAMESPACE := xtdb-deployment
 SERVICE_ACCOUNT := xtdb-service-account
 IAM_ROLE_NAME := xtdb-eks-role
 S3_BUCKET := xtdb-bucket
 
-.PHONY: all setup teardown login kube nam kafka serv iam xtdb prom con pods help
+# Application settings
+ECR_REPO := $(shell terraform -chdir=terraform output -raw ecr_repository_url 2>/dev/null || echo "NOT_SET")
+IMAGE_TAG ?= latest
+
+.PHONY: all setup teardown login kube nam kafka serv iam xtdb prom con pods help \
+        ecr docker-build docker-push app-deploy app-teardown app-logs app-status app-full
 
 # Show help/all commands
 help:
@@ -26,6 +32,15 @@ help:
 	@echo "  make iam            - Create and configure IAM role"
 	@echo "  make xtdb           - Install XTDB with Helm"
 	@echo "  make prom           - Install Prometheus"
+	@echo ""
+	@echo "Application deployment:"
+	@echo "  make ecr            - Create ECR repository (terraform)"
+	@echo "  make docker-build   - Build xtdb-fhir Docker image"
+	@echo "  make docker-push    - Build and push image to ECR"
+	@echo "  make app-deploy     - Deploy xtdb-fhir via Helm"
+	@echo "  make app-logs       - View application logs"
+	@echo "  make app-setup      - Full app deployment (build + push + deploy)"
+	@echo "  make app-teardown   - Uninstall xtdb-fhir's Helm chart"
 
 # Full setup target
 setup: login kube nam kafka serv iam xtdb prom
@@ -125,3 +140,53 @@ con:
 # Show pods in namespace
 pods:
 	kubectl get pods --namespace $(NAMESPACE)
+
+# ===========================================
+# Application Build & Deploy Targets
+# ===========================================
+
+# Create ECR repository via Terraform (Only needs to be run once)
+ecr:
+	@echo "Creating ECR repository..."
+	terraform -chdir=terraform init -upgrade
+	terraform -chdir=terraform apply -target=aws_ecr_repository.xtdb_fhir -target=aws_ecr_lifecycle_policy.xtdb_fhir_lifecycle -auto-approve
+	@echo "ECR repository created: $$(terraform -chdir=terraform output -raw ecr_repository_url)"
+
+# Build the Docker image
+docker-build:
+	@echo "Building xtdb-fhir Docker image..."
+	cd ../xtdb-fhir && docker build -t xtdb-fhir:$(IMAGE_TAG) .
+
+# Tag and push to ECR
+docker-push: docker-build
+	@echo "Pushing to ECR: $(ECR_REPO)"
+	aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_REPO)
+	docker tag xtdb-fhir:$(IMAGE_TAG) $(ECR_REPO):$(IMAGE_TAG)
+	docker push $(ECR_REPO):$(IMAGE_TAG)
+
+# Deploy the application via Helm
+app-deploy:
+	@echo "Deploying xtdb-fhir application..."
+	helm upgrade --install xtdb-fhir ../xtdb-fhir/helm \
+		--namespace $(NAMESPACE) \
+		--set image.repository=$(ECR_REPO) \
+		--set image.tag=$(IMAGE_TAG) \
+		--wait
+
+# View application logs
+app-logs:
+	kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
+
+# Get application pod status
+app-status:
+	kubectl get pods -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
+
+# Full application deployment (build + push + deploy) ECR needs to be ran first. Finally, it will keep you updated on the logs...
+app-setup: docker-push app-deploy
+	@echo "Application fully deployed!"
+	sleep 15
+	kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
+
+# Uninstall the application
+app-teardown:
+	helm uninstall xtdb-fhir --namespace $(NAMESPACE) || true

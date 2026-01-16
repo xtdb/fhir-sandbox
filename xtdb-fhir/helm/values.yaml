@@ -1,0 +1,47 @@
+# Image configuration
+image:
+  repository: ""  # Set to your ECR repo
+  tag: "latest"
+  pullPolicy: Always
+
+# Replica count (typically 1 for batch processing)
+replicaCount: 1
+
+# Database connection (XTDB)
+database:
+  # Internal Kubernetes DNS name for XTDB service
+  host: "xtdb-service.xtdb-deployment.svc.cluster.local"
+  port: 5432
+  user: "xtdb"
+  poolSize: 5
+  poolTimeout: 10000
+
+# Import configuration
+import:
+  batchSize: 100
+  # Directory containing FHIR data (baked into image)
+  dataDir: "/app/data/fhir"
+
+# Resource limits
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+
+# Pod scheduling
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Logging
+logging:
+  level: "INFO"

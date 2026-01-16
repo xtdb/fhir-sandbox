@@ -40,34 +40,35 @@ public class DatabaseConfig implements AutoCloseable {
   
   
   /**
-   * Create a database connection pool from the given properties
+   * Create a database connection pool from the given properties.
+   * Cloud environment variables take precedence over local properties.
    *
-   * @param props The properties to use
+   * @param props The properties to use as fallback
    * @return The created HikariDataSource
    */
   private HikariDataSource createDataSource(Properties props) {
     HikariConfig config = new HikariConfig();
 
     // Use direct URL if provided, otherwise build from components
-    String jdbcUrl = props.getProperty("db.url");
+    String jdbcUrl = getConfigValue("DB_URL", "db.url", props, null);
     if (jdbcUrl == null) {
-      // Build JDBC URL Defaults using XTDB driver for full XTDB feature support
-      String host = props.getProperty("db.host", "localhost");
-      String port = props.getProperty("db.port", "5434");
-      String database = props.getProperty("db.name", "xtdb");
+      // Build JDBC URL using XTDB driver for full XTDB feature support
+      String host = getConfigValue("DB_HOST", "db.host", props, "localhost");
+      String port = getConfigValue("DB_PORT", "db.port", props, "5434");
+      String database = getConfigValue("DB_NAME", "db.name", props, "xtdb");
       jdbcUrl = String.format("jdbc:xtdb://%s:%s/%s", host, port, database);
     }
     config.setJdbcUrl(jdbcUrl);
 
     // Credentials
-    config.setUsername(props.getProperty("db.user", "xtdb"));
+    config.setUsername(getConfigValue("DB_USER", "db.user", props, "xtdb"));
 
     // Pool settings
     config.setMaximumPoolSize(
-        Integer.parseInt(props.getProperty("db.pool.size", "5"))
+        Integer.parseInt(getConfigValue("DB_POOL_SIZE", "db.pool.size", props, "5"))
     );
     config.setConnectionTimeout(
-        Long.parseLong(props.getProperty("db.pool.timeout", "30000"))
+        Long.parseLong(getConfigValue("DB_POOL_TIMEOUT", "db.pool.timeout", props, "30000"))
     );
 
     // Helpful name for debugging
@@ -76,6 +77,23 @@ public class DatabaseConfig implements AutoCloseable {
     logger.info("Connecting to XTDB at: {}", jdbcUrl);
 
     return new HikariDataSource(config);
+  }
+
+  /**
+   * Get configuration value with cloud environment variable taking precedence over local properties.
+   *
+   * @param envVar Environment variable name
+   * @param propKey Property key
+   * @param props Properties to check
+   * @param defaultValue Default value if neither is set
+   * @return The resolved value
+   */
+  private String getConfigValue(String envVar, String propKey, Properties props, String defaultValue) {
+    String envValue = System.getenv(envVar);
+    if (envValue != null && !envValue.isEmpty()) {
+      return envValue;
+    }
+    return props.getProperty(propKey, defaultValue);
   }
 
   /**
