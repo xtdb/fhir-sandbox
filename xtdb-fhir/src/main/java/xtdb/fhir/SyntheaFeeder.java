@@ -7,7 +7,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import org.mitre.synthea.engine.Generator;
 import org.mitre.synthea.export.Exporter;
 import org.mitre.synthea.helpers.Config;
-import org.mitre.synthea.world.agents.Person;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +17,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.sql.SQLException;
-import java.time.LocalDateTime;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,6 +52,7 @@ public class SyntheaFeeder {
   }
 
   @Scheduled(fixedRateString = "#{@syntheaFeederConf.intervalSeconds * 1000}")
+  @SuppressWarnings("unused")
   public void feedPersonRecord() {
     try {
       log.info("obtaining person data...");
