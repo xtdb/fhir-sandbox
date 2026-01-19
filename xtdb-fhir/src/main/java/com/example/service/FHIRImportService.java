@@ -12,16 +12,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Stream;
 
-import com.fasterxml.jackson.databind.node.TextNode;
+import ca.uhn.fhir.model.api.TemporalPrecisionEnum;
+import com.fasterxml.jackson.databind.node.*;
+import org.hl7.fhir.r4.model.DateTimeType;
 import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.example.config.DatabaseConfig;
 import com.example.util.JsonUtil;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import javax.sql.DataSource;
 
@@ -29,11 +28,6 @@ import javax.sql.DataSource;
 public class FHIRImportService {
 
   private static final Logger logger = LoggerFactory.getLogger(FHIRImportService.class);
-
-  // XTDB RECORDS syntax
-  private static final String InsertPatientSQL = "INSERT INTO patients RECORDS ?";
-  private static final String InsertEncounterSQL = "INSERT INTO encounters RECORDS ?";
-  private static final String InsertConditionSQL = "INSERT INTO conditions RECORDS ?";
 
   private final DataSource dataSource;
 
@@ -148,8 +142,14 @@ public class FHIRImportService {
       setReferenceAsId(resource, "subject");
       setReferenceAsId(resource, "patient");
 
+      JsonUtil.convertValues(resource, v -> {
+        var d = toJsonLdDateOrNull(v);
+        return d == null ? v : d;
+      });
+
       JsonUtil.convertKeysToSnakeCase(resource);
       resource.set("_id", resource.get("id")); // must be done after snake_case is applied to keys
+      resource.remove("id");
       resourcesByType.computeIfAbsent(JsonUtil.toSnakeCase(resourceType), k -> new ArrayList<>()).add(resource);
     }
 
@@ -189,34 +189,32 @@ public class FHIRImportService {
     return resourcesByType;
   }
 
+  private static ObjectNode toJsonLdDateOrNull(ValueNode v) {
+    if (v.isTextual()) {
+      try {
+        var asFhirDate = new DateTimeType(v.textValue());
+        if (asFhirDate.getPrecision() == TemporalPrecisionEnum.MONTH
+            || asFhirDate.getPrecision() == TemporalPrecisionEnum.DAY) {
+          var dateJsonLd = JsonNodeFactory.instance.objectNode();
+          dateJsonLd.set("@type", new TextNode("xt:date"));
+          dateJsonLd.set("@value", new TextNode(v.textValue()));
+          return dateJsonLd;
+        } else if (asFhirDate.getPrecision().ordinal() >= TemporalPrecisionEnum.MINUTE.ordinal()){
+          var dateJsonLd = JsonNodeFactory.instance.objectNode();
+          dateJsonLd.set("@type", new TextNode("xt:timestamptz"));
+          dateJsonLd.set("@value", new TextNode(v.textValue()));
+          return dateJsonLd;
+        }
+      } catch (ca.uhn.fhir.parser.DataFormatException ignored) {}
+    }
+    return null;
+  }
+
   private void setReferenceAsId(ObjectNode resource, String topProperty) {
     var subjectRef = JsonUtil.getText(resource, topProperty, "reference");
     if (subjectRef != null) {
       resource.set(topProperty + "_id", new TextNode(extractIdFromReference(subjectRef)));
     }
-  }
-
-  /**
-   * Extract patient ID from a resource's subject or patient reference.
-   * Most FHIR resources reference their patient via "subject" or "patient" field.
-   * Handles both "Patient/id" format and "urn:uuid:id" format (used by Synthea).
-   * Without this check, all the other resources can't be stored properly for the patient.
-   *
-   * @param resource The FHIR resource to extract the patient ID from
-   * @return The patient ID or null if not found
-   */
-  private String extractPatientIdFromResource(JsonNode resource) {
-    // Try common reference fields
-    String ref = JsonUtil.getText(resource, "subject", "reference");
-    if (ref == null) {
-      ref = JsonUtil.getText(resource, "patient", "reference");
-    }
-    // Accept any reference: extractIdFromReference handles both
-    // "Patient/id" and "urn:uuid:id" formats correctly
-    if (ref != null) {
-      return extractIdFromReference(ref);
-    }
-    return null;
   }
 
   /**

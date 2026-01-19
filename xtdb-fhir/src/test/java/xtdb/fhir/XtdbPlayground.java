@@ -26,12 +26,12 @@ public class XtdbPlayground implements BeforeAllCallback, BeforeEachCallback, Pa
   }
 
   @Override
-  public void beforeAll(ExtensionContext context) throws Exception {
+  public void beforeAll(ExtensionContext context) {
     xtdbContainer.start();
   }
 
   @Override
-  public void beforeEach(ExtensionContext context) throws Exception {
+  public void beforeEach(ExtensionContext context) {
     var dataSource = new PGSimpleDataSource();
     dataSource.setServerNames(new String[] {xtdbContainer.getHost()});
     dataSource.setPortNumbers(new int[] { xtdbContainer.getMappedPort(5432) });

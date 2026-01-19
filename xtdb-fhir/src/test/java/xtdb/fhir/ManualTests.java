@@ -21,11 +21,22 @@ public class ManualTests {
     var jsonNode = JsonUtil.parseFile(file);
     try (var conn = dataSource.getConnection()){
       importService.processBundle(jsonNode, conn);
+
+      try (var stmt = conn.createStatement(); var resultSet = stmt.executeQuery("SELECT * FROM patient")) {
+        var md = resultSet.getMetaData();
+        int cols = md.getColumnCount();
+        while (resultSet.next()) {
+          for (int i = 1; i <= cols; i++) {
+            System.out.println(md.getColumnLabel(i) + "=" + resultSet.getString(i));
+          }
+        }
+      }
     }
 //    var result = importService.extractResourcesByType(jsonNode);
 //    System.out.println(result.get("patient"));
   }
 
+  @Test
   void testDateTime() {
     System.out.println(new DateTimeType("1979-12-25"));
     System.out.println(new DateTimeType("1998-02-17T00:48:08+00:00"));

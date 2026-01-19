@@ -1,14 +1,20 @@
 package com.example.util;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ValueNode;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Map;
-
-import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.util.function.Function;
 
 public final class JsonUtil {
   
@@ -99,5 +105,30 @@ public final class JsonUtil {
   public static String toSnakeCase(String s) {
     return PropertyNamingStrategies.SnakeCaseStrategy.INSTANCE.translate(s);
   }
-}
 
+  public static void convertValues(JsonNode node, Function<ValueNode, JsonNode> convert) {
+    if (node.isObject()) {
+      var objectNode = (ObjectNode) node;
+      var fields = objectNode.fields();
+      while (fields.hasNext()) {
+        var field = fields.next();
+        JsonNode value = field.getValue();
+        if (value.isValueNode()) {
+          objectNode.set(field.getKey(), convert.apply((ValueNode) value));
+        } else {
+          convertValues(value, convert);
+        }
+      }
+    } else if (node.isArray()) {
+      ArrayNode arrayNode = (ArrayNode) node;
+      for (int i = 0; i < arrayNode.size(); i++) {
+        JsonNode element = arrayNode.get(i);
+        if (element.isValueNode()) {
+          arrayNode.set(i, convert.apply((ValueNode) element));
+        } else {
+          convertValues(element, convert);
+        }
+      }
+    }
+  }
+}
