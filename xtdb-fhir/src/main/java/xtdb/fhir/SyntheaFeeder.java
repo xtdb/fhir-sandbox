@@ -33,7 +33,7 @@ public class SyntheaFeeder {
 
   private final Exporter.ExporterRuntimeOptions ero;
   private final DatabaseConfig dbConf = new DatabaseConfig(new Properties());
-  private final FHIRImportService importService = new FHIRImportService(dbConf);
+  private final FHIRImportService importService = new FHIRImportService(dbConf.getDataSource());
 
   public SyntheaFeeder() {
     Config.set("exporter.fhir.export", "false");

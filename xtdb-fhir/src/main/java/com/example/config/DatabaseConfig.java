@@ -78,6 +78,10 @@ public class DatabaseConfig implements AutoCloseable {
     return new HikariDataSource(config);
   }
 
+  public HikariDataSource getDataSource() {
+    return dataSource;
+  }
+
   /**
    * Load properties from application.properties
    * 

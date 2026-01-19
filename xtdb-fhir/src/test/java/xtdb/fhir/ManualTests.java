@@ -1,23 +1,25 @@
 package xtdb.fhir;
 
-import com.example.config.DatabaseConfig;
 import com.example.service.FHIRImportService;
 import com.example.util.JsonUtil;
 import org.hl7.fhir.r4.model.DateTimeType;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
+import javax.sql.DataSource;
 import java.io.File;
-import java.util.Properties;
 
+@Disabled
+@ExtendWith(XtdbPlayground.class)
 public class ManualTests {
 
-  void testImport() throws Exception {
-    DatabaseConfig dbConfig = new DatabaseConfig(new Properties());
-    var importService = new FHIRImportService(dbConfig);
+  @Test
+  void testImport(DataSource dataSource) throws Exception {
+    var importService = new FHIRImportService(dataSource);
     File file = new File(ClassLoader.getSystemResource("fhir_sample.json").toURI());
     var jsonNode = JsonUtil.parseFile(file);
-    try (var conn = dbConfig.getConnection()){
+    try (var conn = dataSource.getConnection()){
       importService.processBundle(jsonNode, conn);
     }
 //    var result = importService.extractResourcesByType(jsonNode);
@@ -30,9 +32,4 @@ public class ManualTests {
     System.out.println(new DateTimeType("hola"));
   }
 
-  @Test @Disabled("manual")
-  public void manualTest() throws Exception {
-//    testDateTime();
-    testImport();
-  }
 }

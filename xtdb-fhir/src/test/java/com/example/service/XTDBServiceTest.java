@@ -33,7 +33,7 @@ public class XTDBServiceTest {
       try (Connection conn = dbConfig.getConnection()) {
         xtdbAvailable = conn.isValid(5);
       }
-      xtdbService = new FHIRImportService(dbConfig);
+      xtdbService = new FHIRImportService(dbConfig.getDataSource());
     } catch (Exception e) {
       xtdbAvailable = false;
     }

@@ -23,6 +23,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import javax.sql.DataSource;
+
 // Service that imports FHIR JSON bundles into XTDB.
 public class FHIRImportService {
 
@@ -33,7 +35,7 @@ public class FHIRImportService {
   private static final String InsertEncounterSQL = "INSERT INTO encounters RECORDS ?";
   private static final String InsertConditionSQL = "INSERT INTO conditions RECORDS ?";
 
-  private final DatabaseConfig dbConfig;
+  private final DataSource dataSource;
 
   // Statistics for logging
   private int filesProcessed = 0;
@@ -43,9 +45,8 @@ public class FHIRImportService {
   private int otherResourcesStored = 0;
   private int errors = 0;
 
-  // Constructor that initialises the database configuration
-  public FHIRImportService(DatabaseConfig dbConfig) {
-    this.dbConfig = dbConfig;
+  public FHIRImportService(DataSource dataSource) {
+    this.dataSource = dataSource;
   }
 
   // =========================================================================
@@ -95,7 +96,7 @@ public class FHIRImportService {
         return;
       }
 
-      try (Connection conn = dbConfig.getConnection()) {
+      try (Connection conn = dataSource.getConnection()) {
         conn.setAutoCommit(false);
         processBundle(root, conn);
         conn.commit();

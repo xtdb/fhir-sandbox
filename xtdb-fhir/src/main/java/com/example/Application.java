@@ -48,7 +48,7 @@ public class Application {
     try (DatabaseConfig dbConfig = new DatabaseConfig()) {
 
       // Create service with injected database config
-      FHIRImportService importService = new FHIRImportService(dbConfig);
+      FHIRImportService importService = new FHIRImportService(dbConfig.getDataSource());
 
       // Run the import
       importService.importDirectory(inputPath);
