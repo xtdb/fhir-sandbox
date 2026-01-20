@@ -253,22 +253,26 @@ pods:
 # Application Build & Deploy Targets
 # ===========================================
 
+# Create ECR repository
 ecr:
 	@echo "Creating ECR repository..."
 	@terraform -chdir=terraform init -upgrade
 	@terraform -chdir=terraform apply -target=aws_ecr_repository.xtdb_fhir -target=aws_ecr_lifecycle_policy.xtdb_fhir_lifecycle -auto-approve
 	@echo "ECR repository created: $$(terraform -chdir=terraform output -raw ecr_repository_url)"
 
+# Build the Docker image
 docker-build:
 	@echo "Building xtdb-fhir Docker image..."
 	@cd ../xtdb-fhir && docker build -t xtdb-fhir:$(IMAGE_TAG) .
 
+# Push the Docker image to ECR
 docker-push: docker-build
 	@echo "Pushing to ECR: $(ECR_REPO)"
 	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_REPO)
 	@docker tag xtdb-fhir:$(IMAGE_TAG) $(ECR_REPO):$(IMAGE_TAG)
 	@docker push $(ECR_REPO):$(IMAGE_TAG)
 
+# Deploy the application
 app-dep:
 	@echo "Deploying xtdb-fhir application..."
 	@helm upgrade --install xtdb-fhir ../xtdb-fhir/helm \
