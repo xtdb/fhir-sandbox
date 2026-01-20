@@ -31,9 +31,6 @@ WORKDIR /app
 # Copy JAR from builder
 COPY --from=builder /app/target/xtdb-fhir-1.0-SNAPSHOT.jar app.jar
 
-# Copy sample FHIR data
-COPY data/fhir /app/data/fhir
-
 # Set ownership
 RUN chown -R appuser:appgroup /app
 
@@ -45,4 +42,5 @@ EXPOSE 8080
 # JVM options for containers
 ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar $0 $@"]
+# Run SyntheaFeeder as a long-running service
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

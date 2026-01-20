@@ -1,12 +1,14 @@
 apiVersion: v2
-name: xtdb-fhir
-description: FHIR data importer for XTDB temporal database
+name: xtdb-fhir-generator
+description: Synthea FHIR data generator for XTDB - continuously generates synthetic patient data
 type: application
 version: 0.1.0
 appVersion: "1.0.0"
 keywords:
   - fhir
   - xtdb
+  - synthea
   - healthcare
+  - data-generator
 maintainers:
   - name: XTDB FHIR Sandbox Team

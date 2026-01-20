@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "The AWS region for deploying XTDB infrastructure."
   type        = string
-  default     = "us-east-1"
+  default     = "eu-west-1"
 }
 
 # S3 Storage
@@ -36,7 +36,7 @@ variable "vpc_cidr" {
 variable "vpc_availability_zones" {
   description = "List of availability zones to use for the VPC subnets."
   type        = list(string)
-  default     = ["us-east-1a", "us-east-1b", "us-east-1c"]
+  default     = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
 }
 
 variable "vpc_public_subnets" {

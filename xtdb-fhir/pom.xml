@@ -186,7 +186,7 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
         <configuration>
-          <mainClass>com.example.Application</mainClass>
+          <mainClass>xtdb.fhir.SyntheaFeeder</mainClass>
         </configuration>
       </plugin>
     </plugins>

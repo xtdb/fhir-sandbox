@@ -1,19 +1,20 @@
-apiVersion: batch/v1
-kind: Job
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: {{ include "xtdb-fhir.fullname" . }}-{{ now | date "20060102-150405" }}
+  name: {{ include "xtdb-fhir-generator.fullname" . }}
   labels:
-    {{- include "xtdb-fhir.labels" . | nindent 4 }}
+    {{- include "xtdb-fhir-generator.labels" . | nindent 4 }}
 spec:
-  backoffLimit: 0 # Don't retry failed jobs
-  ttlSecondsAfterFinished: 86400  # Clean up after 24 hours
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "xtdb-fhir-generator.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "xtdb-fhir.selectorLabels" . | nindent 8 }}
+        {{- include "xtdb-fhir-generator.selectorLabels" . | nindent 8 }}
     spec:
-      restartPolicy: Never
-      serviceAccountName: {{ include "xtdb-fhir.serviceAccountName" . }}
+      serviceAccountName: {{ include "xtdb-fhir-generator.serviceAccountName" . }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -25,12 +26,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             - configMapRef:
-                name: {{ include "xtdb-fhir.fullname" . }}-config
+                name: {{ include "xtdb-fhir-generator.fullname" . }}-config
           env:
             - name: JAVA_OPTS
               value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
-          args:
-            - {{ .Values.import.dataDir | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
@@ -39,6 +38,20 @@ spec:
             capabilities:
               drop:
                 - ALL
+          {{- if .Values.healthCheck.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.periodSeconds }}
+          {{- end }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp

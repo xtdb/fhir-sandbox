@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "xtdb-fhir.name" -}}
+{{- define "xtdb-fhir-generator.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "xtdb-fhir.fullname" -}}
+{{- define "xtdb-fhir-generator.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "xtdb-fhir.chart" -}}
+{{- define "xtdb-fhir-generator.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "xtdb-fhir.labels" -}}
-helm.sh/chart: {{ include "xtdb-fhir.chart" . }}
-{{ include "xtdb-fhir.selectorLabels" . }}
+{{- define "xtdb-fhir-generator.labels" -}}
+helm.sh/chart: {{ include "xtdb-fhir-generator.chart" . }}
+{{ include "xtdb-fhir-generator.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,17 +43,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "xtdb-fhir.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "xtdb-fhir.name" . }}
+{{- define "xtdb-fhir-generator.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "xtdb-fhir-generator.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "xtdb-fhir.serviceAccountName" -}}
+{{- define "xtdb-fhir-generator.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "xtdb-fhir.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "xtdb-fhir-generator.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

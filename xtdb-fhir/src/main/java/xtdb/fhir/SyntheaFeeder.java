@@ -23,6 +23,22 @@ import java.sql.SQLException;
 public class SyntheaFeeder {
   private static final Logger log = LoggerFactory.getLogger(SyntheaFeeder.class);
 
+  // Static initializer - set Synthea config BEFORE any Synthea classes initialize
+  static {
+    // Disable ALL file exports (we only use the in-memory queue)
+    Config.set("exporter.fhir.export", "false");
+    Config.set("exporter.hospital.fhir.export", "false");
+    Config.set("exporter.practitioner.fhir.export", "false");
+    Config.set("exporter.metadata.export", "false");
+    Config.set("exporter.clinical_note.export", "false");
+    Config.set("exporter.ccda.export", "false");
+    Config.set("exporter.csv.export", "false");
+    Config.set("exporter.text.export", "false");
+    Config.set("exporter.symptoms.csv.export", "false");
+    Config.set("generate.only_dead_patients", "false");
+    Config.set("exporter.fhir.use_us_core_ig", "false");
+  }
+
   private final DataSource dataSource;
   private final FHIRImportService importService;
   private final int population;
@@ -39,10 +55,6 @@ public class SyntheaFeeder {
   public void feedPersonRecord() throws InterruptedException {
     log.debug("new GeneratorOptions...");
     var options = new Generator.GeneratorOptions();
-    Config.set("exporter.fhir.export", "false");
-    Config.set("exporter.hospital.fhir.export", "false");
-    Config.set("exporter.practitioner.fhir.export", "false");
-    Config.set("generate.only_dead_patients", "false");
 
     options.population = population;
 

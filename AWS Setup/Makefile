@@ -1,5 +1,6 @@
 # XTDB & Kafka Setup Makefile
 # Manages namespace resources for XTDB deployment on AWS EKS
+# Includes: XTDB infrastructure, legacy batch importer, and Synthea data generator
 
 # Namespace settings
 NAMESPACE := xtdb-deployment
@@ -7,15 +8,20 @@ SERVICE_ACCOUNT := xtdb-service-account
 IAM_ROLE_NAME := xtdb-eks-role
 S3_BUCKET := xtdb-bucket
 
-# Application settings
+# Application settings (legacy batch importer)
 ECR_REPO := $(shell terraform -chdir=terraform output -raw ecr_repository_url 2>/dev/null || echo "NOT_SET")
 IMAGE_TAG ?= latest
+
+# Generator settings (Synthea data generator service)
+ECR_GENERATOR_REPO := $(shell terraform -chdir=terraform output -raw ecr_generator_repository_url 2>/dev/null || echo "NOT_SET")
+GENERATOR_TAG ?= latest
 
 # Current environment (read from file if exists)
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods \
-        ecr docker-build docker-push app-dep app-teardown app-logs app-stat app-setup
+        app-dep app-teardown app-logs app-stat \
+        gen-ecr gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown
 
 # Show help/all commands
 help:
@@ -36,15 +42,21 @@ help:
 	@echo "  make xtdb           - Install XTDB with Helm"
 	@echo "  make prom           - Install Prometheus"
 	@echo ""
-	@echo "Application deployment:"
-	@echo "  make ecr            - Create ECR App repository (terraform)"
-	@echo "  make docker-build   - Build xtdb-fhir Docker image"
-	@echo "  make docker-push    - Build and push image to ECR"
-	@echo "  make app-dep        - Deploy xtdb-fhir via Helm"
+	@echo "Legacy app deployment (batch importer from ECR):"
+	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
 	@echo "  make app-logs       - View application logs"
 	@echo "  make app-stat       - Show application status"
-	@echo "  make app-setup      - Full app deployment (build + push + deploy)"
 	@echo "  make app-teardown   - Uninstall xtdb-fhir's Helm chart"
+	@echo ""
+	@echo "Generator deployment (Synthea data generator):"
+	@echo "  make gen-ecr        - Create ECR generator repository (terraform)"
+	@echo "  make gen-build      - Build xtdb-fhir-generator Docker image"
+	@echo "  make gen-push       - Build and push generator image to ECR"
+	@echo "  make gen-dep        - Deploy generator as a long-running pod"
+	@echo "  make gen-logs       - View generator logs"
+	@echo "  make gen-stat       - Show generator pod status"
+	@echo "  make gen-setup      - Full generator deployment (build + push + deploy)"
+	@echo "  make gen-teardown   - Uninstall generator's Helm chart"
 	@echo ""
 	@echo "Current environment: $(if $(CURRENT_ENV),$(CURRENT_ENV),not set)"
 
@@ -250,31 +262,13 @@ pods:
 	@kubectl get pods --namespace $(NAMESPACE)
 
 # ===========================================
-# Application Build & Deploy Targets
+# Legacy Application Deploy Targets (batch importer)
+# Uses existing image on ECR - no build required
 # ===========================================
 
-# Create ECR repository
-ecr:
-	@echo "Creating ECR repository..."
-	@terraform -chdir=terraform init -upgrade
-	@terraform -chdir=terraform apply -target=aws_ecr_repository.xtdb_fhir -target=aws_ecr_lifecycle_policy.xtdb_fhir_lifecycle -auto-approve
-	@echo "ECR repository created: $$(terraform -chdir=terraform output -raw ecr_repository_url)"
-
-# Build the Docker image
-docker-build:
-	@echo "Building xtdb-fhir Docker image..."
-	@cd ../xtdb-fhir && docker build -t xtdb-fhir:$(IMAGE_TAG) .
-
-# Push the Docker image to ECR
-docker-push: docker-build
-	@echo "Pushing to ECR: $(ECR_REPO)"
-	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_REPO)
-	@docker tag xtdb-fhir:$(IMAGE_TAG) $(ECR_REPO):$(IMAGE_TAG)
-	@docker push $(ECR_REPO):$(IMAGE_TAG)
-
-# Deploy the application
+# Deploy the legacy batch importer application
 app-dep:
-	@echo "Deploying xtdb-fhir application..."
+	@echo "Deploying xtdb-fhir batch job..."
 	@helm upgrade --install xtdb-fhir ../xtdb-fhir/helm \
 		--namespace $(NAMESPACE) \
 		--set image.repository=$(ECR_REPO) \
@@ -289,12 +283,55 @@ app-logs:
 app-stat:
 	@kubectl get pods -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
 
-# Full application deployment (build + push + deploy) ECR needs to be ran first. Finally, it will keep you updated on the logs...
-app-setup: docker-push app-dep
-	@echo "Application fully deployed!"
-	@sleep 15
-	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
-
 # Uninstall the application
 app-teardown:
 	@helm uninstall xtdb-fhir --namespace $(NAMESPACE) || true
+
+# ===========================================
+# Generator Build & Deploy Targets (Synthea data generator)
+# ===========================================
+
+# Create ECR repository for generator, needs to me ran once as a 
+gen-ecr:
+	@echo "Creating ECR generator repository..."
+	@terraform -chdir=terraform init -upgrade
+	@terraform -chdir=terraform apply -target=aws_ecr_repository.xtdb_fhir_generator -target=aws_ecr_lifecycle_policy.xtdb_fhir_generator_lifecycle -auto-approve
+	@echo "ECR generator repository created: $$(terraform -chdir=terraform output -raw ecr_generator_repository_url)"
+
+# Build the generator Docker image
+gen-build:
+	@echo "Building xtdb-fhir-generator Docker image..."
+	@cd ../xtdb-fhir && docker build -t xtdb-fhir-generator:$(GENERATOR_TAG) .
+
+# Push the generator Docker image to ECR
+gen-push: gen-build
+	@echo "Pushing generator to ECR: $(ECR_GENERATOR_REPO)"
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_GENERATOR_REPO)
+	@docker tag xtdb-fhir-generator:$(GENERATOR_TAG) $(ECR_GENERATOR_REPO):$(GENERATOR_TAG)
+	@docker push $(ECR_GENERATOR_REPO):$(GENERATOR_TAG)
+
+# Deploy the generator as a long-running pod
+gen-dep:
+	@echo "Deploying xtdb-fhir-generator..."
+	@helm upgrade --install xtdb-fhir-generator ../xtdb-fhir/helm-generator \
+		--namespace $(NAMESPACE) \
+		--set image.repository=$(ECR_GENERATOR_REPO) \
+		--set image.tag=$(GENERATOR_TAG)
+
+# View generator logs
+gen-logs:
+	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
+
+# Get generator pod status
+gen-stat:
+	@kubectl get pods -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
+
+# Full generator deployment (build + push + deploy). Run gen-ecr first if needed.
+gen-setup: gen-push gen-dep
+	@echo "Generator (probably) fully deployed!"
+	@sleep 15
+	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
+
+# Uninstall the generator
+gen-teardown:
+	@helm uninstall xtdb-fhir-generator --namespace $(NAMESPACE) || true
