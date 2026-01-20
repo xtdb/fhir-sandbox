@@ -2,7 +2,7 @@ package xtdb.fhir;
 
 import com.example.service.FHIRImportService;
 import com.example.util.JsonUtil;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.mitre.synthea.engine.Generator;
 import org.mitre.synthea.export.Exporter;
 import org.mitre.synthea.helpers.Config;
@@ -16,14 +16,15 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import javax.sql.DataSource;
-import java.sql.SQLException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @SpringBootApplication
 @EnableScheduling
-public class SyntheaFeeder {
+public class SyntheaFeeder implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(SyntheaFeeder.class);
 
-  // Static initializer - set Synthea config BEFORE any Synthea classes initialize
   static {
     // Disable ALL file exports (we only use the in-memory queue)
     Config.set("exporter.fhir.export", "false");
@@ -39,6 +40,7 @@ public class SyntheaFeeder {
     Config.set("exporter.fhir.use_us_core_ig", "false");
   }
 
+  private final ExecutorService generatorExecutor = Executors.newSingleThreadExecutor();
   private final DataSource dataSource;
   private final FHIRImportService importService;
   private final int population;
@@ -50,9 +52,16 @@ public class SyntheaFeeder {
     this.population = population;
   }
 
+  @Override
+  public void close() throws Exception {
+    generatorExecutor.shutdown();
+    if (!generatorExecutor.awaitTermination(5, TimeUnit.SECONDS))
+      generatorExecutor.shutdownNow();
+  }
+
   @Scheduled(fixedDelayString = "#{${synthea-feeder.interval-seconds} * 1000}")
   @SuppressWarnings("unused")
-  public void feedPersonRecord() throws InterruptedException {
+  public void feedPersonRecord() {
     log.debug("new GeneratorOptions...");
     var options = new Generator.GeneratorOptions();
 
@@ -64,30 +73,45 @@ public class SyntheaFeeder {
 
     log.debug("new Generator...");
     var generator = new Generator(options, ero);
-    log.debug("starting generator.run thread...");
-    new Thread(() -> {
+    log.debug("submitting generator.run task...");
+    var generatorTask = generatorExecutor.submit(() -> {
+      log.debug("starting generator.run done...");
       generator.run();
       log.debug("generator.run done");
-    }).start();
+    });
 
     for (int recordCount = 0; recordCount < options.population; recordCount++) {
-      log.debug("next patient data {} {}...", recordCount, ero.isRecordQueueEmpty());
-      insertRecord(ero.getNextRecord());
+      try {
+        log.debug("obtaining next patient data {}...", recordCount);
+        String patientBundle = ero.getNextRecord();
+        var patientBundleNode = JsonUtil.getMapper().readTree(patientBundle);
+
+        if (log.isDebugEnabled()) {
+          log.debug("inserting into XTDB patient {}...", tryGetPatientFamilyName(patientBundleNode));
+        }
+
+        try (var conn = dataSource.getConnection()) {
+          importService.processBundle(patientBundleNode, conn);
+        }
+
+        log.debug("done inserting patient {}", recordCount);
+      } catch (Throwable e) {
+        // Catch all exceptions for exhausting the record queue - otherwise we will leak generators.
+        log.error("Error inserting patient", e);
+      }
     }
+
+    // Generator sometimes gets blocked when having generated multiple dead patients (why?)
+    // We need to interrupt it for it to finalize.
+    if (generatorTask.cancel(true))
+      log.warn("generator.run had to be cancelled!");
   }
 
-  private void insertRecord(String jsonRecord) {
+  private String tryGetPatientFamilyName(JsonNode patientBundleNode) {
     try {
-      var personNode = JsonUtil.getMapper().readTree(jsonRecord);
-
-      log.debug("inserting into XTDB...");
-      try (var conn = dataSource.getConnection()) {
-        importService.processBundle(personNode, conn);
-      }
-
-      log.debug("done");
-    } catch (JsonProcessingException | SQLException e) {
-      throw new RuntimeException(e);
+      return patientBundleNode.get("entry").get(0).get("resource").get("name").get(0).get("family").toString();
+    } catch (Exception e) {
+      return null;
     }
   }
 
@@ -96,4 +120,5 @@ public class SyntheaFeeder {
     app.setBannerMode(Banner.Mode.OFF);
     app.run(args);
   }
+
 }
