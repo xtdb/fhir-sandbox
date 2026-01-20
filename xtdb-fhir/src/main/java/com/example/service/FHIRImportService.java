@@ -217,9 +217,14 @@ public class FHIRImportService {
     }
   }
 
+  // Max records per batch to stay under Kafka's 1MB message size limit.
+  // Some records (like imaging_study) can be very large (~50KB+), so use small batches.
+  private static final int MAX_BATCH_SIZE = 10;
+
   /**
    * Insert a batch of records using XTDB RECORDS syntax.
    * Uses PGobject with "json" type for efficient JSON transfer.
+   * Splits into smaller chunks to avoid exceeding Kafka's max.request.size (1MB).
    *
    * @param conn The database connection
    * @param sql The SQL statement for insertion
@@ -230,16 +235,22 @@ public class FHIRImportService {
       throws SQLException {
     if (records.isEmpty()) return;
 
-    try (PreparedStatement ps = conn.prepareStatement(sql)) {
-      for (var record : records) {
-        PGobject jsonObject = new PGobject();
-        jsonObject.setType("json");
-        jsonObject.setValue(record.toString());
+    // Process in chunks to avoid exceeding Kafka's message size limit
+    for (int i = 0; i < records.size(); i += MAX_BATCH_SIZE) {
+      int end = Math.min(i + MAX_BATCH_SIZE, records.size());
+      List<JsonNode> chunk = records.subList(i, end);
 
-        ps.setObject(1, jsonObject);
-        ps.addBatch();
+      try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        for (var record : chunk) {
+          PGobject jsonObject = new PGobject();
+          jsonObject.setType("json");
+          jsonObject.setValue(record.toString());
+
+          ps.setObject(1, jsonObject);
+          ps.addBatch();
+        }
+        ps.executeBatch();
       }
-      ps.executeBatch();
     }
   }
 
