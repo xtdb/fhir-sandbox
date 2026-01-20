@@ -1,0 +1,22 @@
+# Production environment overrides
+# Usage: helm upgrade xtdb ./helm -f values.yaml -f values-prod.yaml
+
+nodeCount: 3
+
+resources:
+  limits:
+    cpu: "1000m"
+    memory: "10G"
+    ephemeral-storage: 100Gi
+  requests:
+    cpu: "750m"
+    memory: "10G"
+    ephemeral-storage: 100Gi
+
+xtdbConfig:
+  # Full JVM memory for i3.large instances (15GB RAM)
+  # heap (3G) + direct memory (3G) + metaspace (500m) = ~6.5GB per pod
+  jdkOptions: "-Xmx3000m -Xms3000m -XX:MaxDirectMemorySize=3000m -XX:MaxMetaspaceSize=500m"
+
+  localDiskCache:
+    sizeLimit: "50Gi"

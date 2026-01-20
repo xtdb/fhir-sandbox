@@ -11,17 +11,20 @@ S3_BUCKET := xtdb-bucket
 ECR_REPO := $(shell terraform -chdir=terraform output -raw ecr_repository_url 2>/dev/null || echo "NOT_SET")
 IMAGE_TAG ?= latest
 
-.PHONY: all setup teardown login kube nam kafka serv iam xtdb prom con pods help \
-        ecr docker-build docker-push app-deploy app-teardown app-logs app-status app-full
+# Current environment (read from file if exists)
+CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
+
+.PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods \
+        ecr docker-build docker-push app-dep app-teardown app-logs app-stat app-setup
 
 # Show help/all commands
 help:
 	@echo "XTDB & Kafka Setup Commands"
 	@echo ""
-	@echo "  make setup     - Full setup: login, kubeconfig, namespace, kafka, xtdb, prometheus"
-	@echo "  make teardown  - Delete the namespace (removes all resources)"
-	@echo "  make con       - Port-forward and connect to XTDB via psql"
-	@echo "  make pods      - Show pods in the namespace"
+	@echo "  make setup          - Full setup inc. terraform (prompts for dev/prod)"
+	@echo "  make teardown       - Delete the namespace (removes all resources)"
+	@echo "  make con            - Port-forward and connect to XTDB via psql"
+	@echo "  make pods           - Show pods in the namespace"
 	@echo ""
 	@echo "Individual steps:"
 	@echo "  make login          - AWS login (opens browser)"
@@ -34,97 +37,202 @@ help:
 	@echo "  make prom           - Install Prometheus"
 	@echo ""
 	@echo "Application deployment:"
-	@echo "  make ecr            - Create ECR repository (terraform)"
+	@echo "  make ecr            - Create ECR App repository (terraform)"
 	@echo "  make docker-build   - Build xtdb-fhir Docker image"
 	@echo "  make docker-push    - Build and push image to ECR"
-	@echo "  make app-deploy     - Deploy xtdb-fhir via Helm"
+	@echo "  make app-dep        - Deploy xtdb-fhir via Helm"
 	@echo "  make app-logs       - View application logs"
+	@echo "  make app-stat       - Show application status"
 	@echo "  make app-setup      - Full app deployment (build + push + deploy)"
 	@echo "  make app-teardown   - Uninstall xtdb-fhir's Helm chart"
-
-# Full setup target
-setup: login kube nam kafka serv iam xtdb prom
 	@echo ""
-	@echo "Setup complete!"
-	@echo "Use 'make con' to connect to XTDB"
-	@echo "Use 'make pods' to check pod status"
+	@echo "Current environment: $(if $(CURRENT_ENV),$(CURRENT_ENV),not set)"
+
+# Full setup - terraform (if needed) + all k8s resources (easier to one this way to guarantee environment is consistent)
+setup:
+	@echo "Select environment:"
+	@echo "  1) dev  - Budget config (t4g.medium, reduced resources)"
+	@echo "  2) prod - Performance config (i3.large, full resources)"
+	@read -p "Enter choice [1/2]: " choice; \
+	if [ "$$choice" = "1" ]; then ENV=dev; \
+	elif [ "$$choice" = "2" ]; then ENV=prod; \
+	else echo "Invalid choice. Defaulting to dev."; ENV=dev; fi; \
+	\
+	echo ""; \
+	echo "=== Starting setup for $$ENV ==="; \
+	echo ""; \
+	\
+	echo "Step 1: AWS Login..."; \
+	aws login; \
+	\
+	if [ "$(CURRENT_ENV)" = "$$ENV" ]; then \
+		echo ""; \
+		echo "Terraform: Already in $$ENV mode, skipping..."; \
+	else \
+		echo ""; \
+		echo "Step 2: Applying Terraform ($$ENV)..."; \
+		terraform -chdir=terraform init -upgrade; \
+		terraform -chdir=terraform apply -var-file="$$ENV.tfvars"; \
+		echo "$$ENV" > .current-env; \
+	fi; \
+	\
+	echo ""; \
+	read -p "Deploy k8s resources? [y/n]: " deploy; \
+	if [ "$$deploy" != "y" ] && [ "$$deploy" != "Y" ]; then \
+		echo "Stopping after terraform. Run 'make setup' again to deploy k8s resources."; \
+		exit 0; \
+	fi; \
+	\
+	echo ""; \
+	echo "Step 3: Updating kubeconfig..."; \
+	aws eks --region eu-west-1 update-kubeconfig --name xtdb-cluster || true; \
+	\
+	echo ""; \
+	echo "Step 4: Creating namespace..."; \
+	kubectl create namespace $(NAMESPACE) 2>/dev/null || echo "Namespace already exists"; \
+	\
+	echo ""; \
+	echo "Step 5: Installing Kafka..."; \
+	helm repo add strimzi https://strimzi.io/charts/ 2>/dev/null || true; \
+	helm repo update; \
+	helm install strimzi-operator strimzi/strimzi-kafka-operator --namespace $(NAMESPACE) 2>/dev/null || echo "Strimzi operator already installed"; \
+	echo "Waiting for operator..."; \
+	sleep 10; \
+	kubectl apply -f kafka/kafka-cluster-$$ENV.yaml -n $(NAMESPACE); \
+	\
+	echo ""; \
+	echo "Step 6: Creating service account..."; \
+	kubectl create serviceaccount $(SERVICE_ACCOUNT) --namespace $(NAMESPACE) 2>/dev/null || echo "Service account already exists"; \
+	\
+	echo ""; \
+	echo "Step 7: Configuring IAM..."; \
+	aws iam create-role \
+		--role-name $(IAM_ROLE_NAME) \
+		--assume-role-policy-document file://eks_policy_document.json \
+		--description "XTDB EKS Role" \
+		--no-cli-pager 2>/dev/null || echo "IAM role already exists"; \
+	aws iam attach-role-policy \
+		--role-name $(IAM_ROLE_NAME) \
+		--policy-arn=arn:aws:iam::380613616955:policy/xtdb-s3-access-policy 2>/dev/null || echo "Policy already attached"; \
+	ROLE_ARN=$$(aws iam get-role --role-name $(IAM_ROLE_NAME) --query Role.Arn --output text); \
+	kubectl annotate serviceaccount $(SERVICE_ACCOUNT) \
+		--namespace $(NAMESPACE) \
+		eks.amazonaws.com/role-arn=$$ROLE_ARN \
+		--overwrite; \
+	\
+	echo ""; \
+	echo "Step 8: Installing XTDB..."; \
+	helm upgrade --install xtdb-aws ./helm \
+		--namespace $(NAMESPACE) \
+		-f helm/values.yaml \
+		-f helm/values-$$ENV.yaml \
+		--set xtdbConfig.serviceAccount="$(SERVICE_ACCOUNT)" \
+		--set xtdbConfig.s3Bucket="$(S3_BUCKET)"; \
+	\
+	echo ""; \
+	echo "Step 9: Installing Prometheus..."; \
+	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true; \
+	helm repo update; \
+	helm install prometheus prometheus-community/prometheus \
+		--namespace $(NAMESPACE) \
+		-f prometheus-config.yaml 2>/dev/null || echo "Prometheus already installed"; \
+	\
+	echo ""; \
+	echo "=== Setup complete! ($$ENV) ==="; \
+	echo "Use 'make con' to connect to XTDB"; \
+	echo "Use 'make pods' to check pod status"
 
 # Teardown - remove finalizers, empty S3 bucket, and delete the namespace
 teardown:
-	@echo "Removing finalizers from ALL services within namespace (stopping any from getting stuck)..."
-	kubectl get svc -n xtdb-deployment -o name | xargs -I {} kubectl patch {} -n xtdb-deployment -p '{"metadata":{"finalizers":null}}' --type=merge || true
+	@echo "Removing finalizers from ALL services within namespace..."
+	@kubectl get svc -n $(NAMESPACE) -o name | xargs -I {} kubectl patch {} -n $(NAMESPACE) -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
 	@echo "Emptying S3 bucket $(S3_BUCKET)..."
-	aws s3 rm s3://$(S3_BUCKET) --recursive || true
+	@aws s3 rm s3://$(S3_BUCKET) --recursive || true
 	@echo "Deleting namespace $(NAMESPACE)..."
-	kubectl delete namespace $(NAMESPACE)
+	@kubectl delete namespace $(NAMESPACE)
 	@echo "Namespace deleted. All resources removed."
 
-# Step 1: AWS Login (opens browser)
+# Individual steps (for manual use)
 login:
 	@echo "Opening AWS login in browser..."
-	aws login
+	@aws login
 
-# Step 2: Update kubeconfig for EKS (in case this is needed)...
 kube:
 	@echo "Updating kubeconfig for EKS cluster..."
-	aws eks --region eu-west-1 update-kubeconfig --name xtdb-cluster || echo "Kubeconfig may already be up to date"
+	@aws eks --region eu-west-1 update-kubeconfig --name xtdb-cluster || echo "Kubeconfig may already be up to date"
 
-# Step 3: Create namespace
 nam:
 	@echo "Creating namespace $(NAMESPACE)..."
-	kubectl create namespace $(NAMESPACE) || echo "Namespace may already exist"
+	@kubectl create namespace $(NAMESPACE) || echo "Namespace may already exist"
 
-# Step 4: Install Strimzi Kafka operator and cluster
 kafka:
-	@echo "Adding Strimzi Helm repo..."
-	helm repo add strimzi https://strimzi.io/charts/ || true
-	helm repo update
-	@echo "Installing Strimzi Kafka operator..."
-	helm install strimzi-operator strimzi/strimzi-kafka-operator --namespace $(NAMESPACE) || echo "Strimzi operator may already be installed"
-	@echo "Waiting for operator to be ready..."
-	sleep 10
-	@echo "Applying Kafka cluster configuration..."
-	kubectl apply -f kafka-cluster.yaml -n $(NAMESPACE)
+	@if [ -z "$(CURRENT_ENV)" ]; then \
+		echo "Select environment:"; \
+		echo "  1) dev"; \
+		echo "  2) prod"; \
+		read -p "Enter choice [1/2]: " choice; \
+		if [ "$$choice" = "1" ]; then ENV=dev; else ENV=prod; fi; \
+	else \
+		ENV=$(CURRENT_ENV); \
+		echo "Using current environment: $$ENV"; \
+	fi; \
+	echo "Adding Strimzi Helm repo..."; \
+	helm repo add strimzi https://strimzi.io/charts/ 2>/dev/null || true; \
+	helm repo update; \
+	echo "Installing Strimzi Kafka operator..."; \
+	helm install strimzi-operator strimzi/strimzi-kafka-operator --namespace $(NAMESPACE) 2>/dev/null || echo "Strimzi operator already installed"; \
+	echo "Waiting for operator..."; \
+	sleep 10; \
+	echo "Applying Kafka cluster ($$ENV)..."; \
+	kubectl apply -f kafka/kafka-cluster-$$ENV.yaml -n $(NAMESPACE)
 
-# Step 5: Create service account
 serv:
 	@echo "Creating service account..."
-	kubectl create serviceaccount $(SERVICE_ACCOUNT) --namespace $(NAMESPACE) || echo "Service account may already exist"
+	@kubectl create serviceaccount $(SERVICE_ACCOUNT) --namespace $(NAMESPACE) || echo "Service account may already exist"
 
-# Step 6: Create and configure IAM role
 iam:
 	@echo "Creating IAM role..."
-	aws iam create-role \
+	@aws iam create-role \
 		--role-name $(IAM_ROLE_NAME) \
 		--assume-role-policy-document file://eks_policy_document.json \
 		--description "XTDB EKS Role" \
 		--no-cli-pager || echo "IAM role may already exist"
 	@echo "Attaching policy to role..."
-	aws iam attach-role-policy \
+	@aws iam attach-role-policy \
 		--role-name $(IAM_ROLE_NAME) \
 		--policy-arn=arn:aws:iam::380613616955:policy/xtdb-s3-access-policy || echo "Policy may already be attached"
 	@echo "Annotating service account with IAM role..."
 	$(eval ROLE_ARN := $(shell aws iam get-role --role-name $(IAM_ROLE_NAME) --query Role.Arn --output text))
-	kubectl annotate serviceaccount $(SERVICE_ACCOUNT) \
+	@kubectl annotate serviceaccount $(SERVICE_ACCOUNT) \
 		--namespace $(NAMESPACE) \
 		eks.amazonaws.com/role-arn=$(ROLE_ARN) \
 		--overwrite
 
-# Step 7: Install XTDB with Helm
 xtdb:
-	@echo "Installing XTDB with Helm..."
+	@if [ -z "$(CURRENT_ENV)" ]; then \
+		echo "Select environment:"; \
+		echo "  1) dev"; \
+		echo "  2) prod"; \
+		read -p "Enter choice [1/2]: " choice; \
+		if [ "$$choice" = "1" ]; then ENV=dev; else ENV=prod; fi; \
+	else \
+		ENV=$(CURRENT_ENV); \
+		echo "Using current environment: $$ENV"; \
+	fi; \
+	echo "Installing XTDB with Helm ($$ENV)..."; \
 	helm install xtdb-aws ./helm \
 		--namespace $(NAMESPACE) \
+		-f helm/values.yaml \
+		-f helm/values-$$ENV.yaml \
 		--set xtdbConfig.serviceAccount="$(SERVICE_ACCOUNT)" \
 		--set xtdbConfig.s3Bucket="$(S3_BUCKET)"
 
-# Step 8: Install Prometheus
 prom:
 	@echo "Adding Prometheus Helm repo..."
-	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
-	helm repo update
+	@helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+	@helm repo update
 	@echo "Installing Prometheus..."
-	helm install prometheus prometheus-community/prometheus \
+	@helm install prometheus prometheus-community/prometheus \
 		--namespace $(NAMESPACE) \
 		-f prometheus-config.yaml
 
@@ -132,42 +240,38 @@ prom:
 con:
 	@echo "Connecting to XTDB..."
 	@echo "Press Ctrl+C to disconnect"
-	kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 & \
+	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 & \
 	sleep 2 && \
 	psql "host=localhost port=5432 user=xtdb"; \
 	kill %1 2>/dev/null || true
 
 # Show pods in namespace
 pods:
-	kubectl get pods --namespace $(NAMESPACE)
+	@kubectl get pods --namespace $(NAMESPACE)
 
 # ===========================================
 # Application Build & Deploy Targets
 # ===========================================
 
-# Create ECR repository via Terraform (Only needs to be run once)
 ecr:
 	@echo "Creating ECR repository..."
-	terraform -chdir=terraform init -upgrade
-	terraform -chdir=terraform apply -target=aws_ecr_repository.xtdb_fhir -target=aws_ecr_lifecycle_policy.xtdb_fhir_lifecycle -auto-approve
+	@terraform -chdir=terraform init -upgrade
+	@terraform -chdir=terraform apply -target=aws_ecr_repository.xtdb_fhir -target=aws_ecr_lifecycle_policy.xtdb_fhir_lifecycle -auto-approve
 	@echo "ECR repository created: $$(terraform -chdir=terraform output -raw ecr_repository_url)"
 
-# Build the Docker image
 docker-build:
 	@echo "Building xtdb-fhir Docker image..."
-	cd ../xtdb-fhir && docker build -t xtdb-fhir:$(IMAGE_TAG) .
+	@cd ../xtdb-fhir && docker build -t xtdb-fhir:$(IMAGE_TAG) .
 
-# Tag and push to ECR
 docker-push: docker-build
 	@echo "Pushing to ECR: $(ECR_REPO)"
-	aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_REPO)
-	docker tag xtdb-fhir:$(IMAGE_TAG) $(ECR_REPO):$(IMAGE_TAG)
-	docker push $(ECR_REPO):$(IMAGE_TAG)
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_REPO)
+	@docker tag xtdb-fhir:$(IMAGE_TAG) $(ECR_REPO):$(IMAGE_TAG)
+	@docker push $(ECR_REPO):$(IMAGE_TAG)
 
-# Deploy the application via Helm
-app-deploy:
+app-dep:
 	@echo "Deploying xtdb-fhir application..."
-	helm upgrade --install xtdb-fhir ../xtdb-fhir/helm \
+	@helm upgrade --install xtdb-fhir ../xtdb-fhir/helm \
 		--namespace $(NAMESPACE) \
 		--set image.repository=$(ECR_REPO) \
 		--set image.tag=$(IMAGE_TAG) \
@@ -175,18 +279,18 @@ app-deploy:
 
 # View application logs
 app-logs:
-	kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
+	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
 
 # Get application pod status
-app-status:
-	kubectl get pods -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
+app-stat:
+	@kubectl get pods -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
 
 # Full application deployment (build + push + deploy) ECR needs to be ran first. Finally, it will keep you updated on the logs...
-app-setup: docker-push app-deploy
+app-setup: docker-push app-dep
 	@echo "Application fully deployed!"
-	sleep 15
-	kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
+	@sleep 15
+	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
 
 # Uninstall the application
 app-teardown:
-	helm uninstall xtdb-fhir --namespace $(NAMESPACE) || true
+	@helm uninstall xtdb-fhir --namespace $(NAMESPACE) || true
