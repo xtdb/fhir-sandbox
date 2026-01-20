@@ -1,4 +1,7 @@
-nodeCount: 3
+# Base configuration (production defaults)
+# For dev/lighter resources: helm upgrade xtdb ./helm -f values.yaml -f values-dev.yaml
+
+nodeCount: 3  # Dev: use 1 node via values-dev.yaml
 
 image:
   repository: ghcr.io/xtdb/xtdb-aws
@@ -12,6 +15,8 @@ tolerations: []
 
 affinity: {}
 
+# Production resources for i3.large nodes (15GB RAM)
+# Dev: use values-dev.yaml for lighter resources (2G memory for t4g.medium)
 resources:
   limits:
     cpu: "1000m"
@@ -52,6 +57,8 @@ xtdbConfig:
   # OPTIONAL
   # JDK options - ensure that heap + direct memory + metaspace <= memory limit, and that some overhead is left for the OS
   # See https://docs.oracle.com/cd/E13150_01/jrockit_jvm/jrockit/jrdocs/refman/optionX.html
+  # Production: heap (3G) + direct memory (3G) + metaspace (500m) = ~6.5GB per pod
+  # Dev: use values-dev.yaml for lighter JVM settings (-Xmx1000m -Xms1000m -XX:MaxDirectMemorySize=512m -XX:MaxMetaspaceSize=256m)
   jdkOptions: "-Xmx3000m -Xms3000m -XX:MaxDirectMemorySize=3000m -XX:MaxMetaspaceSize=500m"
 
   # We mount and use the below YAML for configuring the XTDB nodes and their modules.
@@ -87,6 +94,7 @@ xtdbConfig:
       port: 8080
 
   # Volume size settings for XTDB Local Disk Cache (uses ephemeral storage)
+  # Dev: use values-dev.yaml for smaller cache (5Gi)
   localDiskCache:
     sizeLimit: "50Gi"
 

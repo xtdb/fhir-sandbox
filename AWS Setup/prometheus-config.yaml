@@ -25,10 +25,18 @@ kube-state-metrics:
 prometheus-node-exporter:
   enabled: false
 
+# This will now find all the pods in the xtdb-deployment namespace that are labelled with 'xtdb-statefulset-$' and scrape them on port 8080 (healthz)
 extraScrapeConfigs: |
   - job_name: 'xtdb'
-    static_configs:
-      - targets:
-        - 'xtdb-statefulset-0.xtdb-service.xtdb-deployment.svc.cluster.local:8080'
-        - 'xtdb-statefulset-1.xtdb-service.xtdb-deployment.svc.cluster.local:8080'
-        - 'xtdb-statefulset-2.xtdb-service.xtdb-deployment.svc.cluster.local:8080'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ['xtdb-deployment']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: xtdb-statefulset
+        action: keep
+      - source_labels: [__address__]
+        regex: ([^:]+)(?::\d+)?
+        replacement: $1:8080
+        target_label: __address__

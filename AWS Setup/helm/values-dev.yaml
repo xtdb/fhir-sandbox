@@ -1,0 +1,22 @@
+# Development environment overrides
+# Usage: helm upgrade xtdb ./helm -f values.yaml -f values-dev.yaml
+
+nodeCount: 1
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "2G"
+    ephemeral-storage: 10Gi
+  requests:
+    cpu: "250m"
+    memory: "2G"
+    ephemeral-storage: 10Gi
+
+xtdbConfig:
+  # Reduced JVM memory for smaller instances
+  # heap (1G) + direct memory (512m) + metaspace (256m) = ~1.8GB, leaving headroom for OS
+  jdkOptions: "-Xmx1000m -Xms1000m -XX:MaxDirectMemorySize=512m -XX:MaxMetaspaceSize=256m"
+
+  localDiskCache:
+    sizeLimit: "5Gi"

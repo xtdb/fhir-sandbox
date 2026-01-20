@@ -77,16 +77,30 @@ variable "eks_create_cloudwatch_log_group" {
 }
 
 # Application Node Pool
+# Production defaults (i3.large with NVMe). For dev (t4g.medium ARM), use dev.tfvars
+
+variable "use_local_nvme_storage" {
+  description = "Whether to use local NVMe storage (for i3 instances). Dev: set to false for EBS-only instances like t4g."
+  type        = bool
+  default     = true
+}
+
 variable "application_node_pool_machine_type" {
-  description = "Instance type for the application node pool in EKS."
+  description = "Instance type for the application node pool. Dev: use t4g.medium (ARM, 4GB) via dev.tfvars"
   type        = string
   default     = "i3.large"
 }
 
+variable "application_node_pool_ami_type" {
+  description = "AMI type for the node pool. Dev: use AL2023_ARM_64_STANDARD for ARM (t4g) via dev.tfvars"
+  type        = string
+  default     = "AL2023_x86_64_STANDARD"
+}
+
 variable "application_node_pool_min_count" {
-  description = "Minimum number of nodes in the application node pool."
+  description = "Minimum number of nodes in the application node pool. Dev: use 2 via dev.tfvars"
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "application_node_pool_max_count" {
@@ -96,7 +110,7 @@ variable "application_node_pool_max_count" {
 }
 
 variable "application_node_pool_desired_count" {
-  description = "Desired number of nodes in the application node pool."
+  description = "Desired number of nodes in the application node pool. Dev: use 2 via dev.tfvars"
   type        = number
   default     = 3
 }

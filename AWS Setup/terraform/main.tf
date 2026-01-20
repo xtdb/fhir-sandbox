@@ -85,6 +85,29 @@ module "xtdb_vpc" {
   }
 }
 
+# Local values for NVMe storage configuration
+locals {
+  nvme_bootstrap_script = <<-EOT
+    #!/usr/bin/env bash
+    /bin/setup-local-disks raid0
+  EOT
+
+  nvme_cloudinit_config = [
+    {
+      content_type = "application/node.eks.aws"
+      content      = <<-EOT
+        ---
+        apiVersion: node.eks.aws/v1alpha1
+        kind: NodeConfig
+        spec:
+          instance:
+            localStorage:
+              strategy: RAID0
+      EOT
+    }
+  ]
+}
+
 # Sets up an EKS cluster to be used by XTDB
 # For more configuration options, see:
 # https://registry.terraform.io/modules/terraform-aws-modules/eks/aws/latest
@@ -136,37 +159,20 @@ module "xtdb_eks" {
   eks_managed_node_groups = {
     application = {
       name           = "xtdbpool"
+      ami_type       = var.application_node_pool_ami_type
       instance_types = [var.application_node_pool_machine_type]
       min_size       = var.application_node_pool_min_count
       max_size       = var.application_node_pool_max_count
       desired_size   = var.application_node_pool_desired_count
 
-      # Mount instance store volumes in RAID-0 for kubelet and containerd
-      # https://github.com/awslabs/amazon-eks-ami/blob/master/doc/USER_GUIDE.md#raid-0-for-kubelet-and-containerd-raid0
-      # We recommend using IO optimized instances for this configuration, so want to ensure that the instance store is used for the RAID0
-      pre_bootstrap_user_data = <<-EOT
-          #!/usr/bin/env bash
-          # Mount instance store volumes in RAID-0 for kubelet and containerd
-          # https://github.com/awslabs/amazon-eks-ami/blob/master/doc/USER_GUIDE.md#raid-0-for-kubelet-and-containerd-raid0
+      # Force nodes into eu-west-1a (first subnet) for Prometheus/Grafana static IP setup
+      subnet_ids = [module.xtdb_vpc.public_subnets[0]]
 
-          /bin/setup-local-disks raid0
-        EOT
-        
-      cloudinit_pre_nodeadm = [
-        {
-          content_type = "application/node.eks.aws"
-          content      = <<-EOT
-            ---
-            apiVersion: node.eks.aws/v1alpha1
-            kind: NodeConfig
-            spec:
-              instance:
-                localStorage:
-                  strategy: RAID0
-          EOT
-        }
-      ]
-      
+      # Local NVMe RAID0 setup - only applied when use_local_nvme_storage = true (i3 instances)
+      # https://github.com/awslabs/amazon-eks-ami/blob/master/doc/USER_GUIDE.md#raid-0-for-kubelet-and-containerd-raid0
+      pre_bootstrap_user_data = var.use_local_nvme_storage ? local.nvme_bootstrap_script : ""
+      cloudinit_pre_nodeadm   = var.use_local_nvme_storage ? local.nvme_cloudinit_config : []
+
       labels = {
         "node_pool" = "xtdbpool"
       }

@@ -1,3 +1,6 @@
+# Production Kafka cluster - full resources for HA
+# Usage: kubectl apply -f kafka/kafka-cluster-prod.yaml
+
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:

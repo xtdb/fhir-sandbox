@@ -8,3 +8,5 @@ logs
 *.tfstate.backup
 *.tfstate.*.backup
 .claude/settings.local.json
+
+.current-env

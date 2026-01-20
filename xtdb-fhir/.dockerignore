@@ -1,0 +1,37 @@
+# Build outputs
+target/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Git
+.git/
+.gitignore
+
+# Logs
+logs/
+*.log
+
+# Documentation
+*.md
+README*
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Helm chart (deployed separately)
+helm/
+
+# Test files
+src/test/
+
+# OS files
+.DS_Store
+Thumbs.db
