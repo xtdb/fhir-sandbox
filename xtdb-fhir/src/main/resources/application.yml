@@ -1,4 +1,5 @@
 synthea-feeder:
+  population: 2
   interval-seconds: 10
 
 logging:
@@ -8,6 +9,13 @@ logging:
     org.springframework.cloud.aws: DEBUG
 
 spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5434/xtdb
+    username: xtdb
+    password: xtdb
+    hikari:
+      maximum-pool-size: 10
+
   jmx:
     enabled: true
 

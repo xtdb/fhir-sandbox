@@ -72,11 +72,16 @@
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
 
-  <dependency>
-      <groupId>io.awspring.cloud</groupId>
-      <artifactId>spring-cloud-aws-starter-parameter-store</artifactId>
-      <version>3.4.2</version>
-  </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>io.awspring.cloud</groupId>
+        <artifactId>spring-cloud-aws-starter-parameter-store</artifactId>
+        <version>3.4.2</version>
+    </dependency>
 
     <dependency>
       <groupId>org.clojure</groupId>

@@ -22,6 +22,7 @@
 
     <!-- Set levels for different packages -->    
     <logger name="com.example" level="DEBUG"/>
+    <logger name="xtdb.fhir" level="DEBUG"/>
     <logger name="com.zaxxer.hikari" level="INFO"/>
 
     <!-- Set level for everything else (default) -->
