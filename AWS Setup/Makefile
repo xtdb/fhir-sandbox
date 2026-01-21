@@ -248,14 +248,25 @@ prom:
 		--namespace $(NAMESPACE) \
 		-f prometheus-config.yaml
 
-# Connect to XTDB via port-forward and psql
+# Connect to XTDB via internal NLB
 con:
-	@echo "Connecting to XTDB..."
-	@echo "Press Ctrl+C to disconnect"
-	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 & \
-	sleep 2 && \
-	psql "host=localhost port=5432 user=xtdb"; \
-	kill %1 2>/dev/null || true
+	@echo "Getting XTDB NLB hostname..."
+	@XTDB_HOST=$$(kubectl get svc xtdb-service -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'); \
+	if [ -z "$$XTDB_HOST" ]; then \
+		echo "NLB not ready yet. Falling back to port-forward..."; \
+		kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 & \
+		sleep 2 && \
+		psql "host=localhost port=5432 user=xtdb"; \
+		kill %1 2>/dev/null || true; \
+	else \
+		echo "Connecting to $$XTDB_HOST:5432"; \
+		psql "host=$$XTDB_HOST port=5432 user=xtdb"; \
+	fi
+
+# Get the XTDB NLB hostname (for Grafana config)
+xtdb-host:
+	@kubectl get svc xtdb-service -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+	@echo ""
 
 # Show pods in namespace
 pods:
