@@ -2,7 +2,6 @@ package xtdb.fhir;
 
 import com.example.service.FHIRImportService;
 import com.example.util.JsonUtil;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.mitre.synthea.engine.Generator;
 import org.mitre.synthea.export.Exporter;
 import org.mitre.synthea.helpers.Config;
@@ -36,7 +35,6 @@ public class SyntheaFeeder implements AutoCloseable {
     Config.set("exporter.csv.export", "false");
     Config.set("exporter.text.export", "false");
     Config.set("exporter.symptoms.csv.export", "false");
-    Config.set("generate.only_dead_patients", "false");
     Config.set("exporter.fhir.use_us_core_ig", "false");
   }
 
@@ -61,58 +59,40 @@ public class SyntheaFeeder implements AutoCloseable {
 
   @Scheduled(fixedDelayString = "#{${synthea-feeder.interval-seconds} * 1000}")
   @SuppressWarnings("unused")
-  public void feedPersonRecord() {
-    log.debug("new GeneratorOptions...");
+  public void feedPersonRecord() throws Exception {
     var options = new Generator.GeneratorOptions();
-
     options.population = population;
 
-    log.debug("new ExporterRuntimeOptions...");
+    // Important! We rely on population count below for exhausting the exportQueue,
+    // therefore population needs to include both dead and alive persons:
+    options.overflow = false;
+
     var ero = new Exporter.ExporterRuntimeOptions();
     ero.enableQueue(Exporter.SupportedFhirVersion.R4);
 
-    log.debug("new Generator...");
     var generator = new Generator(options, ero);
-    log.debug("submitting generator.run task...");
-    var generatorTask = generatorExecutor.submit(() -> {
-      log.debug("starting generator.run done...");
-      generator.run();
-      log.debug("generator.run done");
-    });
+    log.debug("Running patient generator...");
+    var generatorTask = generatorExecutor.submit(generator::run);
 
     for (int recordCount = 0; recordCount < options.population; recordCount++) {
       try {
-        log.debug("obtaining next patient data {}...", recordCount);
+        log.debug("Obtaining next patient data {}...", recordCount);
         String patientBundle = ero.getNextRecord();
         var patientBundleNode = JsonUtil.getMapper().readTree(patientBundle);
-
-        if (log.isDebugEnabled()) {
-          log.debug("inserting into XTDB patient {}...", tryGetPatientFamilyName(patientBundleNode));
-        }
 
         try (var conn = dataSource.getConnection()) {
           importService.processBundle(patientBundleNode, conn);
         }
 
-        log.debug("done inserting patient {}", recordCount);
-      } catch (Throwable e) {
+        log.debug("Done inserting patient {}", recordCount);
+      } catch (Exception e) {
         // Catch all exceptions for exhausting the record queue - otherwise we will leak generators.
         log.error("Error inserting patient", e);
       }
     }
 
-    // Generator sometimes gets blocked when having generated multiple dead patients (why?)
-    // We need to interrupt it for it to finalize.
-    if (generatorTask.cancel(true))
-      log.warn("generator.run had to be cancelled!");
-  }
-
-  private String tryGetPatientFamilyName(JsonNode patientBundleNode) {
-    try {
-      return patientBundleNode.get("entry").get(0).get("resource").get("name").get(0).get("family").toString();
-    } catch (Exception e) {
-      return null;
-    }
+    // Rethrow any exceptions thrown by the generator task
+    generatorTask.get(10, TimeUnit.SECONDS);
   }
 
   public static void main(String[] args) {
@@ -120,5 +100,4 @@ public class SyntheaFeeder implements AutoCloseable {
     app.setBannerMode(Banner.Mode.OFF);
     app.run(args);
   }
-
 }
