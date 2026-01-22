@@ -80,6 +80,7 @@ xtdbConfig:
     log: !Kafka
       cluster: kafkaCluster
       topic: "xtdb-log"
+      epoch: 1 # Used to reset the transaction log tracking and allow recovery.
 
     storage: !Remote
       objectStore: !S3

@@ -9,19 +9,21 @@ IAM_ROLE_NAME := xtdb-eks-role
 S3_BUCKET := xtdb-bucket
 
 # Application settings (legacy batch importer)
-ECR_REPO := $(shell terraform -chdir=terraform output -raw ecr_repository_url 2>/dev/null || echo "NOT_SET")
+# Fetches ECR URL directly from AWS - works on any PC with AWS credentials
+ECR_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
 IMAGE_TAG ?= latest
 
 # Generator settings (Synthea data generator service)
-ECR_GENERATOR_REPO := $(shell terraform -chdir=terraform output -raw ecr_generator_repository_url 2>/dev/null || echo "NOT_SET")
+# Fetches ECR URL directly from AWS - works on any PC with AWS credentials
+ECR_GENERATOR_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-generator --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
 GENERATOR_TAG ?= latest
 
 # Current environment (read from file if exists)
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods \
-        app-dep app-teardown app-logs app-stat \
-        gen-ecr gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown
+        app-dep app-teardown app-logs app-stat gen-build gen-push gen-dep gen-logs \
+        gen-stat gen-setup gen-teardown
 
 # Show help/all commands
 help:
@@ -49,7 +51,6 @@ help:
 	@echo "  make app-teardown   - Uninstall xtdb-fhir's Helm chart"
 	@echo ""
 	@echo "Generator deployment (Synthea data generator):"
-	@echo "  make gen-ecr        - Create ECR generator repository (terraform)"
 	@echo "  make gen-build      - Build xtdb-fhir-generator Docker image"
 	@echo "  make gen-push       - Build and push generator image to ECR"
 	@echo "  make gen-dep        - Deploy generator as a long-running pod"
@@ -152,7 +153,11 @@ setup:
 	echo ""; \
 	echo "=== Setup complete! ($$ENV) ==="; \
 	echo "Use 'make con' to connect to XTDB"; \
-	echo "Use 'make pods' to check pod status"
+	echo "Use 'make pods' to check pod status"; \
+	echo ""; \
+	echo "Waiting for XTDB pods to start..."; \
+	sleep 10; \
+	kubectl logs -f -l app=xtdb-statefulset -n $(NAMESPACE)
 
 # Teardown - remove finalizers, empty S3 bucket, and delete the namespace
 teardown:
@@ -248,20 +253,14 @@ prom:
 		--namespace $(NAMESPACE) \
 		-f prometheus-config.yaml
 
-# Connect to XTDB via internal NLB
+# Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:
-	@echo "Getting XTDB NLB hostname..."
-	@XTDB_HOST=$$(kubectl get svc xtdb-service -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'); \
-	if [ -z "$$XTDB_HOST" ]; then \
-		echo "NLB not ready yet. Falling back to port-forward..."; \
-		kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 & \
-		sleep 2 && \
-		psql "host=localhost port=5432 user=xtdb"; \
-		kill %1 2>/dev/null || true; \
-	else \
-		echo "Connecting to $$XTDB_HOST:5432"; \
-		psql "host=$$XTDB_HOST port=5432 user=xtdb"; \
-	fi
+	@echo "Connecting to XTDB via port-forward..."
+	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 & \
+	PF_PID=$$!; \
+	sleep 2 && \
+	psql "host=localhost port=5432 user=xtdb"; \
+	kill $$PF_PID 2>/dev/null || true
 
 # Get the XTDB NLB hostname (for Grafana config)
 xtdb-host:
@@ -302,13 +301,6 @@ app-teardown:
 # Generator Build & Deploy Targets (Synthea data generator)
 # ===========================================
 
-# Create ECR repository for generator, needs to me ran once as a 
-gen-ecr:
-	@echo "Creating ECR generator repository..."
-	@terraform -chdir=terraform init -upgrade
-	@terraform -chdir=terraform apply -target=aws_ecr_repository.xtdb_fhir_generator -target=aws_ecr_lifecycle_policy.xtdb_fhir_generator_lifecycle -auto-approve
-	@echo "ECR generator repository created: $$(terraform -chdir=terraform output -raw ecr_generator_repository_url)"
-
 # Build the generator Docker image
 gen-build:
 	@echo "Building xtdb-fhir-generator Docker image..."
@@ -337,7 +329,7 @@ gen-logs:
 gen-stat:
 	@kubectl get pods -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
 
-# Full generator deployment (build + push + deploy). Run gen-ecr first if needed.
+# Full generator deployment (build + push + deploy).
 gen-setup: gen-push gen-dep
 	@echo "Generator (probably) fully deployed!"
 	@sleep 15
