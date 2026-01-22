@@ -21,9 +21,9 @@ GENERATOR_TAG ?= latest
 # Current environment (read from file if exists)
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
-.PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods \
-        app-dep app-teardown app-logs app-stat gen-build gen-push gen-dep gen-logs \
-        gen-stat gen-setup gen-teardown
+.PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
+        app-dep app-teardown app-logs gen-build gen-push gen-dep gen-logs \
+        gen-stat gen-setup gen-teardown cloud-logs
 
 # Show help/all commands
 help:
@@ -33,6 +33,8 @@ help:
 	@echo "  make teardown       - Delete the namespace (removes all resources)"
 	@echo "  make con            - Port-forward and connect to XTDB via psql"
 	@echo "  make pods           - Show pods in the namespace"
+	@echo "  make bucket         - Show S3 bucket size (objects and GB)"
+	@echo "  make cloud-logs     - Tail CloudWatch logs (all cluster pods)"
 	@echo ""
 	@echo "Individual steps:"
 	@echo "  make login          - AWS login (opens browser)"
@@ -47,7 +49,6 @@ help:
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
 	@echo "  make app-logs       - View application logs"
-	@echo "  make app-stat       - Show application status"
 	@echo "  make app-teardown   - Uninstall xtdb-fhir's Helm chart"
 	@echo ""
 	@echo "Generator deployment (Synthea data generator):"
@@ -271,6 +272,14 @@ xtdb-host:
 pods:
 	@kubectl get pods --namespace $(NAMESPACE)
 
+# Show S3 bucket size (object count and size in GB)
+bucket:
+	@aws s3 ls s3://$(S3_BUCKET) --recursive --summarize | tail -2 | awk '/Total Size:/ {printf "Total Size: %.2f GB\n", $$3/1024/1024/1024} /Total Objects:/ {print}'
+
+# Tail CloudWatch logs (all pods in cluster)
+cloud-logs:
+	@aws logs tail /aws/containerinsights/xtdb-cluster/application --follow
+
 # ===========================================
 # Legacy Application Deploy Targets (batch importer)
 # Uses existing image on ECR - no build required
@@ -288,10 +297,6 @@ app-dep:
 # View application logs
 app-logs:
 	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
-
-# Get application pod status
-app-stat:
-	@kubectl get pods -l app.kubernetes.io/name=xtdb-fhir -n $(NAMESPACE)
 
 # Uninstall the application
 app-teardown:
