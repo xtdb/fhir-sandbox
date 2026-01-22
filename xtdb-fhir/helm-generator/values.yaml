@@ -52,8 +52,9 @@ serviceAccount:
 logging:
   level: "INFO"
 
-# Health checks (disabled - worker pod has no web server)
+# Health checks via Spring Boot Actuator
 healthCheck:
-  enabled: false
+  enabled: true
   initialDelaySeconds: 60
   periodSeconds: 30
+  failureThreshold: 3

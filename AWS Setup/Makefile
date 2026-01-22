@@ -162,13 +162,24 @@ setup:
 
 # Teardown - remove finalizers, empty S3 bucket, and delete the namespace
 teardown:
-	@echo "Removing finalizers from ALL services within namespace..."
-	@kubectl get svc -n $(NAMESPACE) -o name | xargs -I {} kubectl patch {} -n $(NAMESPACE) -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
-	@echo "Emptying S3 bucket $(S3_BUCKET)..."
-	@aws s3 rm s3://$(S3_BUCKET) --recursive || true
-	@echo "Deleting namespace $(NAMESPACE)..."
-	@kubectl delete namespace $(NAMESPACE)
-	@echo "Namespace deleted. All resources removed."
+	@echo ""
+	@echo "WARNING: This will DELETE ALL resources in namespace $(NAMESPACE)!"
+	@echo "         This includes: XTDB, Kafka, Prometheus, and ALL data."
+	@echo "         The S3 bucket $(S3_BUCKET) will also be emptied."
+	@echo ""
+	@read -p "Type 'yes' to confirm deletion: " confirm; \
+	if [ "$$confirm" = "yes" ] || [ "$$confirm" = "Yes" ] || [ "$$confirm" = "YES" ]; then \
+		echo ""; \
+		echo "Removing finalizers from ALL services within namespace..."; \
+		kubectl get svc -n $(NAMESPACE) -o name | xargs -I {} kubectl patch {} -n $(NAMESPACE) -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true; \
+		echo "Emptying S3 bucket $(S3_BUCKET)..."; \
+		aws s3 rm s3://$(S3_BUCKET) --recursive || true; \
+		echo "Deleting namespace $(NAMESPACE)..."; \
+		kubectl delete namespace $(NAMESPACE); \
+		echo "Namespace deleted. All resources removed."; \
+	else \
+		echo "Aborted. No changes made."; \
+	fi
 
 # Individual steps (for manual use)
 login:
