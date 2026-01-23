@@ -335,7 +335,8 @@ gen-dep:
 	@helm upgrade --install xtdb-fhir-generator ../xtdb-fhir/helm-generator \
 		--namespace $(NAMESPACE) \
 		--set image.repository=$(ECR_GENERATOR_REPO) \
-		--set image.tag=$(GENERATOR_TAG)
+		--set image.tag=$(GENERATOR_TAG) \
+		--set image.pullPolicy=Always
 
 # View generator logs
 gen-logs:
