@@ -15,7 +15,7 @@ spec:
     - broker
   storage:
     type: persistent-claim
-    size: 10Gi
+    size: 100Gi
     class: gp2
   resources:
     requests:
