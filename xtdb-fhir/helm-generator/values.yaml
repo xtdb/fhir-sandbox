@@ -10,9 +10,9 @@ replicaCount: 1
 # Synthea generator configuration
 synthea:
   # Number of patients to generate per interval
-  population: 2
+  population: 50
   # Interval between generation runs (in seconds)
-  intervalSeconds: 10
+  intervalSeconds: 1
 
 # Database connection (XTDB)
 database:
