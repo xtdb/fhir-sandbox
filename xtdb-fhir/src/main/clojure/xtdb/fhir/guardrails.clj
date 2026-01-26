@@ -3,18 +3,24 @@
             [next.jdbc :as jdbc]
             [xtdb.api :as xt]
             [clojure.tools.logging :as log])
-  (:import (java.util.concurrent Executors ScheduledExecutorService TimeUnit)))
+  (:import (com.zaxxer.hikari HikariDataSource)
+           (java.sql SQLException)
+           (java.util.concurrent Executors ScheduledExecutorService TimeUnit)))
 
 (comment
   (mount/start))
 
 (defstate ^{:on-reload :noop, :dynamic true}
   *xt*
-  :start (xt/client {:host "localhost"
-                     :port 5432
-                     :dbname "xtdb"
-                     :user "xtdb"
-                     :password "xtdb"}))
+  :start (doto (HikariDataSource.)
+           (.setDataSource (xt/client {:host "localhost"
+                                       :port 5432
+                                       :dbname "xtdb"
+                                       :user "xtdb"
+                                       :password "xtdb"}))
+           (.setConnectionTimeout 5000)
+           (.setMinimumIdle 1))
+  :stop (.close *xt*))
 
 (def first-row-val (comp val ffirst))
 
@@ -56,15 +62,22 @@
 (defstate guardrails-job
   :start (.scheduleWithFixedDelay *scheduler*
            (fn []
-             (log/info "Running guardrails...")
-             (check-increasing-patient-count! {})
-             (log/info "Guardrails run"))
+             (try
+               (log/info "Running guardrails...")
+               (check-increasing-patient-count! {})
+               (log/info "Guardrails run")
+               (catch Exception e
+                 (when-not (and (.isShutdown *scheduler*)
+                                (or (instance? InterruptedException e)
+                                    (instance? SQLException e)))
+                   (log/error e)))))
            0
            1 TimeUnit/MINUTES)
-  :stop (.cancel guardrails-job false))
+  :stop (.cancel guardrails-job true))
 
 (comment
   (mount/start)
+  (mount/stop)
   (mount/stop #'guardrails-job))
 
 (comment

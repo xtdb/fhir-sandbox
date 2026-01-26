@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<configuration>
+<configuration scan="true" scanPeriod="5 seconds">
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
@@ -16,7 +16,6 @@
     <!-- Set levels for different packages -->
     <logger name="com.example" level="DEBUG"/>
     <logger name="xtdb.fhir" level="DEBUG"/>
-    <logger name="com.zaxxer.hikari" level="INFO"/>
 
     <!-- Set level for everything else (default) -->
     <!-- Console-only logging (container best practice) -->
