@@ -337,6 +337,7 @@ gen-dep:
 		--set image.repository=$(ECR_GENERATOR_REPO) \
 		--set image.tag=$(GENERATOR_TAG) \
 		--set image.pullPolicy=Always
+	@kubectl rollout restart deployment -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
 
 # View generator logs
 gen-logs:
@@ -355,3 +356,35 @@ gen-setup: gen-push gen-dep
 # Uninstall the generator
 gen-teardown:
 	@helm uninstall xtdb-fhir-generator --namespace $(NAMESPACE) || true
+
+# ===========================================
+# Guardrails Deploy (monitoring daemon)
+ECR_GUARDRAILS_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-guardrails --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+GUARDRAILS_TAG ?= latest
+
+guardrails-build:
+	@echo "Building xtdb-fhir-guardrails Docker image..."
+	@cd ../xtdb-fhir-clj && docker build -t xtdb-fhir-guardrails:$(GUARDRAILS_TAG) .
+
+guardrails-push: guardrails-build
+	@echo "Pushing guardrails to ECR: $(ECR_GUARDRAILS_REPO)"
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_GUARDRAILS_REPO)
+	@docker tag xtdb-fhir-guardrails:$(GUARDRAILS_TAG) $(ECR_GUARDRAILS_REPO):$(GUARDRAILS_TAG)
+	@docker push $(ECR_GUARDRAILS_REPO):$(GUARDRAILS_TAG)
+
+guardrails-dep:
+	@echo "Deploying guardrails..."
+	@sed 's|IMAGE_PLACEHOLDER|$(ECR_GUARDRAILS_REPO):$(GUARDRAILS_TAG)|g' guardrails-deployment.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@kubectl rollout restart deployment/xtdb-fhir-guardrails -n $(NAMESPACE)
+
+guardrails-logs:
+	@kubectl logs -f -l app=xtdb-fhir-guardrails -n $(NAMESPACE)
+
+guardrails-stat:
+	@kubectl get pods -l app=xtdb-fhir-guardrails -n $(NAMESPACE)
+
+guardrails-setup: guardrails-push guardrails-dep
+	@echo "Guardrails deployed!"
+
+guardrails-teardown:
+	@kubectl delete deployment xtdb-fhir-guardrails -n $(NAMESPACE) || true

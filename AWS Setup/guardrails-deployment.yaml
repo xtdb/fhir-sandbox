@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xtdb-fhir-guardrails
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xtdb-fhir-guardrails
+  template:
+    metadata:
+      labels:
+        app: xtdb-fhir-guardrails
+    spec:
+      containers:
+      - name: guardrails
+        image: IMAGE_PLACEHOLDER
+        env:
+        - name: XTDB_HOST
+          value: "xtdb-service.xtdb-deployment.svc.cluster.local"
+        - name: XTDB_PORT
+          value: "5432"

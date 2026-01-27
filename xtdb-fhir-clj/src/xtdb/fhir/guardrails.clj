@@ -1,8 +1,10 @@
 (ns xtdb.fhir.guardrails
+  (:gen-class)
   (:require [mount.core :as mount :refer [defstate]]
             [next.jdbc :as jdbc]
             [xtdb.api :as xt]
-            [clojure.tools.logging :as log])
+            [clojure.tools.logging :as log]
+            [environ.core :refer [env]])
   (:import (com.zaxxer.hikari HikariDataSource)
            (java.sql SQLException)
            (java.util.concurrent Executors ScheduledExecutorService TimeUnit)))
@@ -13,11 +15,11 @@
 (defstate ^{:on-reload :noop, :dynamic true}
   *xt*
   :start (doto (HikariDataSource.)
-           (.setDataSource (xt/client {:host "localhost"
-                                       :port 5432
-                                       :dbname "xtdb"
-                                       :user "xtdb"
-                                       :password "xtdb"}))
+           (.setDataSource (xt/client {:host (or (env :xtdb-host) "localhost")
+                                       :port (or (some-> (env :xtdb-port) parse-long) 5432)
+                                       :dbname (or (env :xtdb-dbname) "xtdb")
+                                       :user (or (env :xtdb-user) "xtdb")
+                                       :password (or (env :xtdb-password) "xtdb")}))
            (.setConnectionTimeout 5000)
            (.setMinimumIdle 1))
   :stop (.close *xt*))
@@ -54,7 +56,7 @@
   (check-increasing-patient-count! {:cold-run? true})
   (check-increasing-patient-count! {}))
 
-(defstate ^{:tag ScheduledExecutorService, :on-reload :noop, :dynamic true}
+(defstate ^{:tag ScheduledExecutorService, :dynamic true}
   *scheduler*
   :start (Executors/newSingleThreadScheduledExecutor)
   :stop (.shutdown *scheduler*))
@@ -86,3 +88,13 @@
       "SELECT _id, _valid_from, result
        FROM ops.query_result FOR VALID_TIME ALL
        ORDER BY _valid_from")))
+
+(defn -main [& _args]
+  (log/info "Starting...")
+  (mount/start)
+  (.addShutdownHook (Runtime/getRuntime)
+    (Thread. (fn []
+               (log/info "Stopping...")
+               (mount/stop)
+               (log/info "Stopped"))))
+  (log/info "Started"))
