@@ -14,7 +14,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
-import javax.sql.DataSource;
+import com.zaxxer.hikari.HikariDataSource;
+
+import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -39,22 +42,27 @@ public class SyntheaFeeder implements AutoCloseable {
   }
 
   private final ExecutorService generatorExecutor = Executors.newSingleThreadExecutor();
-  private final DataSource dataSource;
+  private final ExecutorService insertionExecutor;
+  private final HikariDataSource dataSource;
   private final FHIRImportService importService;
   private final int population;
 
-  public SyntheaFeeder(DataSource dataSource,
+  public SyntheaFeeder(HikariDataSource dataSource,
                        @Value("${synthea-feeder.population:2}") int population) {
     this.dataSource = dataSource;
     this.importService = new FHIRImportService(dataSource);
     this.population = population;
+    this.insertionExecutor = Executors.newFixedThreadPool(dataSource.getMaximumPoolSize());
   }
 
   @Override
   public void close() throws Exception {
     generatorExecutor.shutdown();
+    insertionExecutor.shutdown();
     if (!generatorExecutor.awaitTermination(5, TimeUnit.SECONDS))
       generatorExecutor.shutdownNow();
+    if (!insertionExecutor.awaitTermination(30, TimeUnit.SECONDS))
+      insertionExecutor.shutdownNow();
   }
 
   @Scheduled(fixedDelayString = "#{${synthea-feeder.interval-seconds} * 1000}")
@@ -74,22 +82,32 @@ public class SyntheaFeeder implements AutoCloseable {
     log.debug("Running patient generator...");
     var generatorTask = generatorExecutor.submit(generator::run);
 
+    var insertionFutures = new ArrayList<CompletableFuture<Void>>(options.population);
+
     for (int recordCount = 0; recordCount < options.population; recordCount++) {
+      final int patientIndex = recordCount;
       try {
-        log.debug("Obtaining next patient data {}...", recordCount);
-        String patientBundle = ero.getNextRecord();
+        log.debug("Obtaining next patient data {}...", patientIndex);
+        String patientBundle = ero.getNextRecord(); // blocks until next record available
         var patientBundleNode = JsonUtil.getMapper().readTree(patientBundle);
 
-        try (var conn = dataSource.getConnection()) {
-          importService.processBundle(patientBundleNode, conn);
-        }
+        var future = CompletableFuture.runAsync(() -> {
+          try (var conn = dataSource.getConnection()) {
+            importService.processBundle(patientBundleNode, conn);
+            log.debug("Done inserting patient {}", patientIndex);
+          } catch (Exception e) {
+            log.error("Error inserting patient {}", patientIndex, e);
+          }
+        }, insertionExecutor);
 
-        log.debug("Done inserting patient {}", recordCount);
+        insertionFutures.add(future);
       } catch (Exception e) {
         // Catch all exceptions for exhausting the record queue - otherwise we will leak generators.
-        log.error("Error inserting patient", e);
+        log.error("Error obtaining patient data {}", patientIndex, e);
       }
     }
+
+    CompletableFuture.allOf(insertionFutures.toArray(new CompletableFuture[0])).join();
 
     // Rethrow any exceptions thrown by the generator task
     generatorTask.get(10, TimeUnit.SECONDS);

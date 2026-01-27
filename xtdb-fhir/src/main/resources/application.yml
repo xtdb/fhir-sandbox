@@ -14,7 +14,7 @@ spring:
     username: xtdb
     password: xtdb
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 20
 
   jmx:
     enabled: true
