@@ -46,6 +46,8 @@ metadata:
     strimzi.io/node-pools: enabled
 spec:
   kafka:
+    config:
+      log.retention.bytes: "91268055040"  # 85GB per partition
     listeners:
       - name: plain
         port: 9092
