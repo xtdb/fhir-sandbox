@@ -72,7 +72,7 @@
                  (when-not (and (.isShutdown *scheduler*)
                                 (or (instance? InterruptedException e)
                                     (instance? SQLException e)))
-                   (log/error e)))))
+                   (log/error e "Error while running guardrails")))))
            0
            1 TimeUnit/MINUTES)
   :stop (.cancel guardrails-job true))

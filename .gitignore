@@ -10,3 +10,10 @@ logs
 .claude
 
 .current-env
+
+# IntelliJ
+/.idea/
+
+# Clojure
+.nrepl-port
+.cpcache/

@@ -69,7 +69,6 @@ data:
         Kube_URL            https://kubernetes.default.svc:443
         Kube_Tag_Prefix     application.var.log.containers.
         Merge_Log           On
-        Merge_Log_Key       log_processed
         K8S-Logging.Parser  On
         K8S-Logging.Exclude Off
         Labels              Off
@@ -77,6 +76,33 @@ data:
         Use_Kubelet         On
         Kubelet_Port        10250
         Buffer_Size         0
+
+    # Multiline first (concatenate stack traces), then parse
+    # XTDB and apps doing similar logging
+    [FILTER]
+        Name                multiline
+        Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
+        multiline.key_content log
+        multiline.parser    java_multiline
+    [FILTER]
+        Name                parser
+        Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
+        Key_Name            log
+        Parser              xtdb
+        Reserve_Data        On
+
+    # Kafka/Strimzi
+    [FILTER]
+        Name                multiline
+        Match_Regex         application\.var\.log\.containers\.(kafka|strimzi).*
+        multiline.key_content log
+        multiline.parser    java_multiline
+    [FILTER]
+        Name                parser
+        Match_Regex         application\.var\.log\.containers\.(kafka|strimzi).*
+        Key_Name            log
+        Parser              kafka
+        Reserve_Data        On
 
     [OUTPUT]
         Name                cloudwatch_logs
@@ -213,3 +239,28 @@ data:
         Regex               (?<log>(?<="log":")\d{4}[\/-]\d{1,2}[\/-]\d{1,2}[ T]\d{2}:\d{2}:\d{2}(?!\.).*?)(?<!\\)".*(?<stream>(?<="stream":").*?)".*(?<time>\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}\.\w*).*(?=})
         Time_Key            time
         Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
+    [PARSER]
+        Name                xtdb
+        Format              regex
+        Regex               ^\d{2}:\d{2}:\d{2}\s+\|\s+(?<level>\w+)\s+(?<logger>[^\|]+?)\s*\|\s+(?<log>[\s\S]*)$
+
+    [PARSER]
+        Name                kafka
+        Format              regex
+        Regex               ^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+(?<level>\w+)\s+(?<log>[\s\S]*)$
+
+    [MULTILINE_PARSER]
+        name                java_multiline
+        type                regex
+        flush_timeout       1000
+        # Start: logback format (HH:mm:ss | LEVEL logger | message)
+        rule                "start_state"   "/^\d{2}:\d{2}:\d{2}\s+\|/"                                         "cont"
+        # Start: date format (YYYY-MM-DD)
+        rule                "start_state"   "/^\d{4}-\d{2}-\d{2}/"                                              "cont"
+        # Continuation: lines starting with whitespace (stack frames, "... N more", Suppressed:)
+        rule                "cont"          "/^\s+/"                                                            "cont"
+        # Continuation: Caused by (not indented)
+        rule                "cont"          "/^Caused by:/"                                                     "cont"
+        # Continuation: Java exceptions (e.g., "java.lang.SomeClass:" or "SomeClass:")
+        rule                "cont"          "/^[\w.$]+:/"                                                       "cont"

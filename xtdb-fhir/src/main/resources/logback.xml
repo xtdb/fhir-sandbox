@@ -2,7 +2,8 @@
 <configuration scan="true" scanPeriod="5 seconds">
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <!-- Same as XTDB -->
+            <pattern>%d{HH:mm:ss} | %-5level %logger{36} | %msg%n</pattern>
         </encoder>
     </appender>
 
@@ -16,6 +17,7 @@
     <!-- Set levels for different packages -->
     <logger name="com.example" level="DEBUG"/>
     <logger name="xtdb.fhir" level="DEBUG"/>
+    <logger name="org.springframework" level="INFO"/>
 
     <!-- Set level for everything else (default) -->
     <!-- Console-only logging (container best practice) -->

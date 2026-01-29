@@ -248,8 +248,8 @@ xtdb:
 		ENV=$(CURRENT_ENV); \
 		echo "Using current environment: $$ENV"; \
 	fi; \
-	echo "Installing XTDB with Helm ($$ENV)..."; \
-	helm install xtdb-aws ./helm \
+	echo "Installing/upgrading XTDB with Helm ($$ENV)..."; \
+	helm upgrade --install xtdb-aws ./helm \
 		--namespace $(NAMESPACE) \
 		-f helm/values.yaml \
 		-f helm/values-$$ENV.yaml \

@@ -9,6 +9,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/dev" isTestSource="false" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
@@ -25,7 +26,9 @@
     <orderEntry type="library" name="Deps: org.apache.arrow/arrow-format:18.3.0" level="project" />
     <orderEntry type="library" name="Deps: com.fasterxml.jackson.core/jackson-databind:2.18.3" level="project" />
     <orderEntry type="library" name="Deps: org.clojure/spec.alpha:0.5.238" level="project" />
+    <orderEntry type="library" name="Deps: mx.cider/logjam:0.3.0" level="project" />
     <orderEntry type="library" name="Deps: org.jetbrains.kotlin/kotlin-stdlib:2.2.0" level="project" />
+    <orderEntry type="library" name="Deps: cider/orchard:0.27.2" level="project" />
     <orderEntry type="library" name="Deps: org.apache.arrow/arrow-memory-netty:18.3.0" level="project" />
     <orderEntry type="library" name="Deps: org.apache.arrow/arrow-algorithm:18.3.0" level="project" />
     <orderEntry type="library" name="Deps: com.github.luben/zstd-jni:1.5.7-2" level="project" />
@@ -48,8 +51,10 @@
     <orderEntry type="library" name="Deps: org.msgpack/msgpack:0.6.12" level="project" />
     <orderEntry type="library" name="Deps: com.cognitect/transit-clj:1.0.329" level="project" />
     <orderEntry type="library" name="Deps: com.github.seancorfield/next.jdbc:1.3.1086" level="project" />
+    <orderEntry type="library" name="Deps: cider/cider-nrepl:0.50.2" level="project" />
     <orderEntry type="library" name="Deps: org.apache.arrow/arrow-memory-core:18.3.0" level="project" />
     <orderEntry type="library" name="Deps: org.checkerframework/checker-qual:3.42.0" level="project" />
+    <orderEntry type="library" name="Deps: nrepl:1.3.0" level="project" />
     <orderEntry type="library" name="Deps: mount:0.1.23" level="project" />
     <orderEntry type="library" name="Deps: org.slf4j/slf4j-api:2.0.17" level="project" />
     <orderEntry type="library" name="Deps: com.google.protobuf/protobuf-java:4.31.1" level="project" />

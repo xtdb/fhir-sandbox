@@ -14,3 +14,7 @@
                       (as-> opt
                         (do (set! (.-population opt) 5)))))
     (.run)))
+
+(comment
+  (.printStackTrace (doto (Exception. "top" (Exception. "cause"))
+                      (.addSuppressed (Exception. "suppressed" (Exception. "suppressed cause"))))))
