@@ -258,9 +258,23 @@ data:
         rule                "start_state"   "/^\d{2}:\d{2}:\d{2}\s+\|/"                                         "cont"
         # Start: date format (YYYY-MM-DD)
         rule                "start_state"   "/^\d{4}-\d{2}-\d{2}/"                                              "cont"
+
         # Continuation: lines starting with whitespace (stack frames, "... N more", Suppressed:)
         rule                "cont"          "/^\s+/"                                                            "cont"
         # Continuation: Caused by (not indented)
         rule                "cont"          "/^Caused by:/"                                                     "cont"
-        # Continuation: Java exceptions (e.g., "java.lang.SomeClass:" or "SomeClass:")
-        rule                "cont"          "/^[\w.$]+:/"                                                       "cont"
+        # Continuation: usual Java exceptions (e.g., "java.lang.NullPointerException:")
+        rule                "cont"          "/^[\w.$]*(Exception|Error|Throwable):/"                           "cont"
+        # Continuation: Clojure ex-info:
+        rule                "cont"          "/^clojure\.lang\.ExceptionInfo:/"                                 "cont"
+        # Continuation: XTDB exceptions (e.g., "xtdb.error.*:")
+        rule                "cont"          "/^xtdb\.error\.[\w$]+:/"                                          "cont"
+        # Continuation: Netty leak detector patterns
+        rule                "cont"          "/^(Recent access records|Created at):/"                            "cont"
+        # Continuation: Arrow leak exception additional lines
+        rule                "cont"          "/^Allocator\(/"                                                    "cont"
+
+        # Start: fallback for any other line (prevents dropping)
+        rule                "start_state"   "/.+/"                                                              "single"
+        # Single state: no continuation allowed (rule never matches, forces flush on next line)
+        rule                "single"        "/^$/"                                                              "single"
