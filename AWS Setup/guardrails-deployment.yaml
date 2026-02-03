@@ -20,3 +20,5 @@ spec:
           value: "xtdb-service.xtdb-deployment.svc.cluster.local"
         - name: XTDB_PORT
           value: "5432"
+        - name: JDK_JAVA_OPTIONS
+          value: "-Dclojure.server.repl=\"{:port 7888 :accept clojure.core.server/repl}\""
