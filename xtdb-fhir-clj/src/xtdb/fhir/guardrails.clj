@@ -33,7 +33,7 @@
        :result (extract-result-f raw-result)
        :q-args q-args
        :snapshot_token (first-row-val (xt/q tx "SHOW SNAPSHOT_TOKEN"))
-       :snapshot_time (first-row-val (xt/q tx "SELECT CURRENT_TIME"))})))
+       :snapshot_timestamp (first-row-val (xt/q tx "SELECT CURRENT_TIMESTAMP"))})))
 
 (comment
   (fetch-query-result *xt* ["FROM patient SELECT COUNT(*) AS patient_count"] first-row-val))
