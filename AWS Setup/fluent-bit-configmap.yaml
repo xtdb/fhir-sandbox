@@ -264,15 +264,17 @@ data:
         # Continuation: Caused by (not indented)
         rule                "cont"          "/^Caused by:/"                                                     "cont"
         # Continuation: usual Java exceptions (e.g., "java.lang.NullPointerException:")
-        rule                "cont"          "/^[\w.$]*(Exception|Error|Throwable):/"                           "cont"
+        rule                "cont"          "/^[\w.$]*(Exception|Error|Throwable):/"                            "cont"
         # Continuation: Clojure ex-info:
-        rule                "cont"          "/^clojure\.lang\.ExceptionInfo:/"                                 "cont"
+        rule                "cont"          "/^clojure\.lang\.ExceptionInfo:/"                                  "cont"
         # Continuation: XTDB exceptions (e.g., "xtdb.error.*:")
-        rule                "cont"          "/^xtdb\.error\.[\w$]+:/"                                          "cont"
+        rule                "cont"          "/^xtdb\.error\.[\w$]+:/"                                           "cont"
         # Continuation: Netty leak detector patterns
         rule                "cont"          "/^(Recent access records|Created at):/"                            "cont"
         # Continuation: Arrow leak exception additional lines
         rule                "cont"          "/^Allocator\(/"                                                    "cont"
+        # Continuation: Seeing orphan "at ..." lines, so unindented stack traces
+        rule                "cont"          "/^at /"                                                            "cont"
 
         # Start: fallback for any other line (prevents dropping)
         rule                "start_state"   "/.+/"                                                              "single"
