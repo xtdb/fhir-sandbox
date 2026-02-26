@@ -1,0 +1,16 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Run SyntheaFeeder locally" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="xtdb.fhir.SyntheaFeeder" />
+    <module name="xtdb-fhir" />
+    <option name="VM_PARAMETERS" value="-Dlogging.config=file:$PROJECT_DIR$/xtdb-fhir/dev/logback-local.xml" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="xtdb.fhir.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

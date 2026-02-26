@@ -35,6 +35,7 @@ data:
         multiline.parser    docker, cri
         DB                  /var/fluent-bit/state/flb_container.db
         Mem_Buf_Limit       50MB
+        Buffer_Max_Size     64k
         Skip_Long_Lines     On
         Refresh_Interval    10
         Rotate_Wait         30
@@ -89,6 +90,12 @@ data:
         Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
         Key_Name            log
         Parser              xtdb
+        Reserve_Data        On
+    [FILTER]
+        Name                parser
+        Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
+        Key_Name            log
+        Parser              logback_status
         Reserve_Data        On
 
     # Kafka/Strimzi
@@ -246,6 +253,11 @@ data:
         Regex               ^\d{2}:\d{2}:\d{2}\s+\|\s+(?<level>\w+)\s+(?<logger>[^\|]+?)\s*\|\s+(?<log>[\s\S]*)$
 
     [PARSER]
+        Name                logback_status
+        Format              regex
+        Regex               ^\d{2}:\d{2}:\d{2},\d{3} \|-(?<level>\w+) in (?<logger>\S+) - (?<log>.*)$
+
+    [PARSER]
         Name                kafka
         Format              regex
         Regex               ^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+(?<level>\w+)\s+(?<log>[\s\S]*)$
@@ -254,12 +266,12 @@ data:
         name                java_multiline
         type                regex
         flush_timeout       1000
-        # Start: logback format (HH:mm:ss | LEVEL logger | message)
-        rule                "start_state"   "/^\d{2}:\d{2}:\d{2}\s+\|/"                                         "cont"
+        # Start: logback format HH:mm:ss[,SSS]...
+        rule                "start_state"   "/^\d{2}:\d{2}:\d{2}(?:,\d+)?\s+\|/"                                "cont"
         # Start: date format (YYYY-MM-DD)
         rule                "start_state"   "/^\d{4}-\d{2}-\d{2}/"                                              "cont"
 
-        # Continuation: lines starting with whitespace (stack frames, "... N more", Suppressed:)
+        # Continuation: all indented lines (stack frames, "... N more", Suppressed:)
         rule                "cont"          "/^\s+/"                                                            "cont"
         # Continuation: Caused by (not indented)
         rule                "cont"          "/^Caused by:/"                                                     "cont"
@@ -273,10 +285,10 @@ data:
         rule                "cont"          "/^(Recent access records|Created at):/"                            "cont"
         # Continuation: Arrow leak exception additional lines
         rule                "cont"          "/^Allocator\(/"                                                    "cont"
-        # Continuation: Seeing orphan "at ..." lines, so unindented stack traces
-        rule                "cont"          "/^at /"                                                            "cont"
+        # Continuation: empty lines
+        rule                "cont"          "/^$/"                                                              "cont"
 
         # Start: fallback for any other line (prevents dropping)
         rule                "start_state"   "/.+/"                                                              "single"
-        # Single state: no continuation allowed (rule never matches, forces flush on next line)
-        rule                "single"        "/^$/"                                                              "single"
+        # Single state: no continuation allowed (forces flush on next line)
+        rule                "single"        "/^\b$/"                                                            "single"

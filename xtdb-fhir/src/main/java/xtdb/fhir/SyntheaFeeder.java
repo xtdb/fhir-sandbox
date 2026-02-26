@@ -16,6 +16,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 import com.zaxxer.hikari.HikariDataSource;
 
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -27,7 +29,21 @@ import java.util.concurrent.TimeUnit;
 public class SyntheaFeeder implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(SyntheaFeeder.class);
 
+  private static final Logger stdoutLog = LoggerFactory.getLogger("stdout");
+
   static {
+    System.setOut(new PrintStream(new OutputStream() {
+      private final StringBuilder buf = new StringBuilder();
+      @Override public void write(int b) {
+        if (b == '\n') {
+          stdoutLog.debug("{}", buf.toString());
+          buf.setLength(0);
+        } else {
+          buf.append((char) b);
+        }
+      }
+    }));
+
     // Disable ALL file exports (we only use the in-memory queue)
     Config.set("exporter.fhir.export", "false");
     Config.set("exporter.hospital.fhir.export", "false");

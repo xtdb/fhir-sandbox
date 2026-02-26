@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="5 seconds">
+    <include resource="logback-common.xml"/>
+
+    <logger name="com.example" level="DEBUG"/>
+    <logger name="xtdb.fhir" level="INFO"/>
+    <logger name="org.springframework" level="INFO"/>
+    <logger name="stdout" level="OFF"/>
+</configuration>
