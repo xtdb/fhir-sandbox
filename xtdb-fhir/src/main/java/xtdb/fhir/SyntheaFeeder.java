@@ -68,7 +68,10 @@ public class SyntheaFeeder implements AutoCloseable {
     this.dataSource = dataSource;
     this.importService = new FHIRImportService(dataSource);
     this.population = population;
-    this.insertionExecutor = Executors.newFixedThreadPool(dataSource.getMaximumPoolSize());
+
+    // We better leave one connection idle for DataSource health checks to always succeed
+    if (!(dataSource.getMaximumPoolSize() >= 2)) throw new IllegalStateException("pool size must be >= 2");
+    this.insertionExecutor = Executors.newFixedThreadPool(dataSource.getMaximumPoolSize() - 1);
   }
 
   @Override
