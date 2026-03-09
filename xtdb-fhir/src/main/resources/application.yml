@@ -14,8 +14,12 @@ spring:
     username: xtdb
     password: xtdb
     hikari:
+      connection-timeout: 5000
+      initialization-fail-timeout: -1
       data-source-properties:
         socketTimeout: 60
+        connectTimeout: 5
+        loginTimeout: 5
       maximum-pool-size: 20
 
   jmx:

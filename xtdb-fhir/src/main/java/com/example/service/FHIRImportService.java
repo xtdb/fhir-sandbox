@@ -128,7 +128,7 @@ public class FHIRImportService {
       var resourceType = mapEntry.getKey();
       var resources = mapEntry.getValue();
       insertBatch(conn, String.format("INSERT INTO %s RECORDS ?", resourceType), resources);
-      logger.info("inserted {} resources of type {}", resources.size(), resourceType);
+      logger.debug("inserted {} resources of type {}", resources.size(), resourceType);
     }
   }
 
