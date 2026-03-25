@@ -9,9 +9,6 @@
            (java.sql SQLException)
            (java.util.concurrent Executors ScheduledExecutorService TimeUnit)))
 
-(comment
-  (mount/start))
-
 (defstate ^{:on-reload :noop, :dynamic true}
   *xt*
   :start (doto (HikariDataSource.)
@@ -65,9 +62,9 @@
   :start (.scheduleWithFixedDelay *scheduler*
            (fn []
              (try
-               (log/info "Running guardrails...")
+               (log/debug "Running guardrails...")
                (check-increasing-patient-count! {})
-               (log/info "Guardrails run")
+               (log/debug "Guardrails run")
                (catch Exception e
                  (when-not (and (.isShutdown *scheduler*)
                                 (or (instance? InterruptedException e)
