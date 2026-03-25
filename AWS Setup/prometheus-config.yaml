@@ -40,3 +40,5 @@ extraScrapeConfigs: |
         regex: ([^:]+)(?::\d+)?
         replacement: $1:8080
         target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: instance
