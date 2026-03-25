@@ -1,6 +1,14 @@
 terraform {
   required_version = ">=1.3"
-  required_providers {
+
+  backend "s3" {
+    bucket  = "xtdb-fhir-terraform-state"
+    key     = "terraform/state.tfstate"
+    region  = "eu-west-1"
+    profile = "xtdb"
+  }
+
+required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
