@@ -1,7 +1,6 @@
 package xtdb.fhir;
 
-import com.example.service.FHIRImportService;
-import com.example.util.JsonUtil;
+import xtdb.fhir.util.JsonUtil;
 import org.mitre.synthea.engine.Generator;
 import org.mitre.synthea.export.Exporter;
 import org.mitre.synthea.helpers.Config;

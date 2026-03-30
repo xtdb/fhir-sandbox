@@ -1,7 +1,6 @@
 package xtdb.fhir;
 
-import com.example.service.FHIRImportService;
-import com.example.util.JsonUtil;
+import xtdb.fhir.util.JsonUtil;
 import org.hl7.fhir.r4.model.DateTimeType;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;

@@ -1,4 +1,4 @@
-package com.example.service;
+package xtdb.fhir;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,7 +19,7 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.example.util.JsonUtil;
+import xtdb.fhir.util.JsonUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import javax.sql.DataSource;

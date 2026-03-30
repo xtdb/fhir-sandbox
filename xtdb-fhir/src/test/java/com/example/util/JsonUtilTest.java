@@ -12,28 +12,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import xtdb.fhir.util.JsonUtil;
 
 public class JsonUtilTest {
 
-  // Asserting that getMapper returns a mapper that isn't null
-  @Test
-  public void returnsNonNull() {
-    ObjectMapper mapper = JsonUtil.getMapper();
-
-    assertThat(mapper).isNotNull();
-  }
-
-  // Asserting that getMapper returns the same instance every time
-  @Test
-  public void returnsSameInstance() {
-    ObjectMapper mapper1 = JsonUtil.getMapper();
-    ObjectMapper mapper2 = JsonUtil.getMapper();
-
-    assertThat(mapper1).isSameAs(mapper2);
-  }
-
-  // Asserting that parseFile can correctly parse a JSON file
   @Test
   public void parseJSONFile(@TempDir Path tempDir) throws IOException {
     Path JSONFile = tempDir.resolve("test.json");

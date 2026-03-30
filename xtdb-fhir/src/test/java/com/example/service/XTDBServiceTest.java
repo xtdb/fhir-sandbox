@@ -11,31 +11,37 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import com.example.config.DatabaseConfig;
+import xtdb.fhir.FHIRImportService;
 
 @Disabled
 // Integration tests for FHIRImportService with a real XTDB database running.
 public class XTDBServiceTest {
 
-  private DatabaseConfig dbConfig;
   private FHIRImportService xtdbService;
   private boolean xtdbAvailable;
+  private HikariDataSource dataSource;
 
 
   @BeforeEach
   public void setUp() {
     try {
-      dbConfig = new DatabaseConfig();
-      try (Connection conn = dbConfig.getConnection()) {
+      HikariConfig config = new HikariConfig();
+      config.setJdbcUrl("jdbc:xtdb://localhost:5434/xtdb");
+      config.setUsername("xtdb");
+      config.setMaximumPoolSize(5);
+      config.setConnectionTimeout(30000);
+      dataSource = new HikariDataSource(config);
+      try (Connection conn = dataSource.getConnection()) {
         xtdbAvailable = conn.isValid(5);
       }
-      xtdbService = new FHIRImportService(dbConfig.getDataSource());
+      xtdbService = new FHIRImportService(dataSource);
     } catch (Exception e) {
       xtdbAvailable = false;
     }
@@ -43,8 +49,8 @@ public class XTDBServiceTest {
 
   @AfterEach
   public void tearDown() {
-    if (dbConfig != null) {
-      dbConfig.close();
+    if (dataSource != null) {
+      dataSource.close();
     }
   }
 
@@ -82,7 +88,7 @@ public class XTDBServiceTest {
     // Verify
     assertThat(xtdbService.getPatientsInserted()).isEqualTo(1);
 
-    try (Connection conn = dbConfig.getConnection();
+    try (Connection conn = dataSource.getConnection();
          Statement stmt = conn.createStatement();
          ResultSet rs = stmt.executeQuery(
              "SELECT _id, name, gender, birth_date FROM patients WHERE _id = '" + id + "'")) {
@@ -133,7 +139,7 @@ public class XTDBServiceTest {
     assertThat(xtdbService.getConditionsInserted()).isEqualTo(1);
 
     // Query using XTDB temporal features
-    try (Connection conn = dbConfig.getConnection();
+    try (Connection conn = dataSource.getConnection();
          Statement stmt = conn.createStatement()) {
 
       // Condition should be visible in March 2020 (between onset and abatement)
@@ -239,7 +245,7 @@ public class XTDBServiceTest {
     assertThat(xtdbService.getConditionsInserted()).isEqualTo(1);
 
     // Query using XTDB temporal features
-    try (Connection conn = dbConfig.getConnection();
+    try (Connection conn = dataSource.getConnection();
          Statement stmt = conn.createStatement()) {
 
       // Condition should be visible in March 2020

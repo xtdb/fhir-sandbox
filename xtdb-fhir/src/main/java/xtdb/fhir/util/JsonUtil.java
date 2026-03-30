@@ -1,4 +1,4 @@
-package com.example.util;
+package xtdb.fhir.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,12 +20,6 @@ public final class JsonUtil {
   
   private static final ObjectMapper MAPPER = createMapper();
 
-  // Private constructor to prevent instantiation
-  private JsonUtil() {
-    throw new AssertionError("Utility class: do not instantiate!");
-  }
-  
-  // Called once when the class initially loads
   private static ObjectMapper createMapper() {
     ObjectMapper mapper = new ObjectMapper();
 
@@ -38,18 +32,10 @@ public final class JsonUtil {
     return mapper;
   }
 
-  // Used to share the object mapper and work with it directly
   public static ObjectMapper getMapper() {
     return MAPPER;
   }
 
-  /**
-   * Parse a JSON file into a tree structure
-   * 
-   * @param file The JSON file to parse into a tree
-   * @return The root JsonNode of the parsed tree
-   * @throws IOException Thrown if the file cannot be read or parsed properly
-   */
   public static JsonNode parseFile(File file) throws IOException {
     return MAPPER.readTree(file);
   }
