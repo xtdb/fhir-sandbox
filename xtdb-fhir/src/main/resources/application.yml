@@ -27,7 +27,7 @@ spring:
   cloud:
     aws:
       parameterstore:
-        enabled: true  # Disable for local dev
+        enabled: false
 
 management:
   endpoints:

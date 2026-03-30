@@ -58,7 +58,7 @@ help:
 	@echo "  make gen-logs       - View generator logs"
 	@echo "  make gen-stat       - Show generator pod status"
 	@echo "  make gen-setup      - Full generator deployment (build + push + deploy)"
-	@echo "  make gen-teardown   - Uninstall generator's Helm chart"
+	@echo "  make gen-teardown   - Remove generator deployment"
 	@echo ""
 	@echo "Current environment: $(if $(CURRENT_ENV),$(CURRENT_ENV),not set)"
 
@@ -332,30 +332,26 @@ gen-push: gen-build
 # Deploy the generator as a long-running pod
 gen-dep:
 	@echo "Deploying xtdb-fhir-generator..."
-	@helm upgrade --install xtdb-fhir-generator ../xtdb-fhir/helm-generator \
-		--namespace $(NAMESPACE) \
-		--set image.repository=$(ECR_GENERATOR_REPO) \
-		--set image.tag=$(GENERATOR_TAG) \
-		--set image.pullPolicy=Always
-	@kubectl rollout restart deployment -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
+	@sed 's|IMAGE_PLACEHOLDER|$(ECR_GENERATOR_REPO):$(GENERATOR_TAG)|g' generator-deployment.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@kubectl rollout restart deployment/xtdb-fhir-generator -n $(NAMESPACE)
 
 # View generator logs
 gen-logs:
-	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
+	@kubectl logs -f -l app=xtdb-fhir-generator -n $(NAMESPACE)
 
 # Get generator pod status
 gen-stat:
-	@kubectl get pods -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
+	@kubectl get pods -l app=xtdb-fhir-generator -n $(NAMESPACE)
 
 # Full generator deployment (build + push + deploy).
 gen-setup: gen-push gen-dep
 	@echo "Generator (probably) fully deployed!"
 	@sleep 15
-	@kubectl logs -f -l app.kubernetes.io/name=xtdb-fhir-generator -n $(NAMESPACE)
+	@kubectl logs -f -l app=xtdb-fhir-generator -n $(NAMESPACE)
 
 # Uninstall the generator
 gen-teardown:
-	@helm uninstall xtdb-fhir-generator --namespace $(NAMESPACE) || true
+	@kubectl delete -f generator-deployment.yaml -n $(NAMESPACE) || true
 
 # ===========================================
 # Guardrails Deploy (monitoring daemon)
