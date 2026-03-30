@@ -1,4 +1,4 @@
-synthea-feeder:
+patient-generator:
   population: 2
   interval-seconds: 10
 

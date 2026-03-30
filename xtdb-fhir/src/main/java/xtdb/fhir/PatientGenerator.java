@@ -26,8 +26,8 @@ import java.util.concurrent.TimeUnit;
 
 @SpringBootApplication
 @EnableScheduling
-public class SyntheaFeeder implements AutoCloseable {
-  private static final Logger log = LoggerFactory.getLogger(SyntheaFeeder.class);
+public class PatientGenerator implements AutoCloseable {
+  private static final Logger log = LoggerFactory.getLogger(PatientGenerator.class);
 
   private static final Logger stdoutLog = LoggerFactory.getLogger("stdout");
 
@@ -63,8 +63,8 @@ public class SyntheaFeeder implements AutoCloseable {
   private final FHIRImportService importService;
   private final int population;
 
-  public SyntheaFeeder(HikariDataSource dataSource,
-                       @Value("${synthea-feeder.population:2}") int population) {
+  public PatientGenerator(HikariDataSource dataSource,
+                          @Value("${patient-generator.population:2}") int population) {
     this.dataSource = dataSource;
     this.importService = new FHIRImportService(dataSource);
     this.population = population;
@@ -84,7 +84,7 @@ public class SyntheaFeeder implements AutoCloseable {
       insertionExecutor.shutdownNow();
   }
 
-  @Scheduled(fixedDelayString = "#{${synthea-feeder.interval-seconds} * 1000}")
+  @Scheduled(fixedDelayString = "#{${patient-generator.interval-seconds} * 1000}")
   @SuppressWarnings("unused")
   public void feedPersonRecord() throws Exception {
     var options = new Generator.GeneratorOptions();
@@ -133,7 +133,7 @@ public class SyntheaFeeder implements AutoCloseable {
   }
 
   public static void main(String[] args) {
-    SpringApplication app = new SpringApplication(SyntheaFeeder.class);
+    SpringApplication app = new SpringApplication(PatientGenerator.class);
     app.setBannerMode(Banner.Mode.OFF);
     app.run(args);
   }

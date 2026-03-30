@@ -42,5 +42,5 @@ EXPOSE 8080
 # JVM options for containers
 ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
-# Run SyntheaFeeder as a long-running service
+# Run PatientGenerator as a long-running service
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

@@ -5,9 +5,9 @@ metadata:
   labels:
     {{- include "xtdb-fhir-generator.labels" . | nindent 4 }}
 data:
-  # Synthea feeder configuration
-  SYNTHEA_FEEDER_POPULATION: {{ .Values.synthea.population | quote }}
-  SYNTHEA_FEEDER_INTERVAL_SECONDS: {{ .Values.synthea.intervalSeconds | quote }}
+  # Patient generator configuration
+  PATIENT_GENERATOR_POPULATION: {{ .Values.patientGenerator.population | quote }}
+  PATIENT_GENERATOR_INTERVAL_SECONDS: {{ .Values.patientGenerator.intervalSeconds | quote }}
 
   # Spring datasource configuration (connects to XTDB)
   SPRING_DATASOURCE_URL: "jdbc:postgresql://{{ .Values.database.host }}:{{ .Values.database.port }}/xtdb"

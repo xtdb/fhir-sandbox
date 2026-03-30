@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run SyntheaFeeder locally" type="Application" factoryName="Application">
-    <option name="MAIN_CLASS_NAME" value="xtdb.fhir.SyntheaFeeder" />
+  <configuration default="false" name="Run PatientGenerator locally" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="xtdb.fhir.PatientGenerator" />
     <module name="xtdb-fhir" />
     <option name="VM_PARAMETERS" value="-Dlogging.config=file:$PROJECT_DIR$/xtdb-fhir/dev/logback-local.xml" />
     <extension name="coverage">

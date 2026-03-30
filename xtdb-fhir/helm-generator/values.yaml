@@ -7,8 +7,8 @@ image:
 # Replica count (typically 1 for data generation)
 replicaCount: 1
 
-# Synthea generator configuration
-synthea:
+# Patient generator configuration
+patientGenerator:
   # Number of patients to generate per interval
   population: 50
   # Interval between generation runs (in seconds)
