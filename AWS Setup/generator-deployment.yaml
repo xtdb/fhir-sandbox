@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xtdb-fhir-generator-config
+data:
+  application.yml: |
+    patient-generator:
+      population: 1
+      interval-seconds: 10
+
+    spring:
+      datasource:
+        url: jdbc:postgresql://xtdb-service.xtdb-deployment.svc.cluster.local:5432/xtdb
+        username: xtdb
+        hikari:
+          connection-timeout: 11000
+          maximum-pool-size: 10
+          data-source-properties:
+            socketTimeout: 60
+            connectTimeout: 10
+            loginTimeout: 10
+      cloud:
+        aws:
+          parameterstore:
+            enabled: false
+
+    logging:
+      level:
+        root: INFO
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xtdb-fhir-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xtdb-fhir-generator
+  template:
+    metadata:
+      labels:
+        app: xtdb-fhir-generator
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: xtdb-fhir-generator
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: Always
+          env:
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "100m"
+            limits:
+              memory: "4Gi"
+              cpu: "1000m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: app-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: app-config
+          configMap:
+            name: xtdb-fhir-generator-config
+            items:
+              - key: application.yml
+                path: application.yml
