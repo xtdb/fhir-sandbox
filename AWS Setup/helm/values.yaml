@@ -95,6 +95,11 @@ xtdbConfig:
       host: '*'
       port: 8080
 
+    garbageCollector:
+      enabled: true
+      blocksToKeep: 10
+      garbageLifetime: PT24H
+
   # Volume size settings for XTDB Local Disk Cache (uses ephemeral storage)
   # Dev: use values-dev.yaml for smaller cache (5Gi)
   localDiskCache:

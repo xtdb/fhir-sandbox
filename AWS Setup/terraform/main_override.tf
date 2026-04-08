@@ -9,7 +9,7 @@ module "xtdb_storage" {
       enabled = true
 
       noncurrent_version_expiration = {
-        noncurrent_days = 365
+        noncurrent_days = 1
       }
     }
   ]
