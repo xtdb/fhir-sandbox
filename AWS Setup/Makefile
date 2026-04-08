@@ -18,6 +18,10 @@ IMAGE_TAG ?= latest
 ECR_GENERATOR_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-generator --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
 GENERATOR_TAG ?= latest
 
+# Chaos Mesh settings
+CHAOS_MESH_VERSION := 2.7.2
+CHAOS_NAMESPACE    := chaos-mesh
+
 # Current environment (read from file if exists)
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
@@ -31,6 +35,8 @@ help:
 	@echo ""
 	@echo "  make setup          - Full setup inc. terraform (prompts for dev/prod)"
 	@echo "  make teardown       - Delete the namespace (removes all resources)"
+	@echo "  make scale-down     - Scale XTDB nodes, generator, and guardrails to zero"
+	@echo "  make scale-up       - Scale XTDB nodes to 3, generator and guardrails to 1"
 	@echo "  make con            - Port-forward and connect to XTDB via psql"
 	@echo "  make pods           - Show pods in the namespace"
 	@echo "  make bucket         - Show S3 bucket size (objects and GB)"
@@ -59,6 +65,13 @@ help:
 	@echo "  make gen-stat       - Show generator pod status"
 	@echo "  make gen-setup      - Full generator deployment (build + push + deploy)"
 	@echo "  make gen-teardown   - Remove generator deployment"
+	@echo ""
+	@echo "Chaos engineering (opt-in, run after setup):"
+	@echo "  make chaos-install  - Install Chaos Mesh via Helm"
+	@echo "  make chaos-apply    - Apply XTDB pod-kill experiment"
+	@echo "  make chaos-delete   - Remove the pod-kill experiment"
+	@echo "  make chaos-status   - Show Chaos Mesh pods and active experiments"
+	@echo "  make chaos-teardown - Uninstall Chaos Mesh entirely"
 	@echo ""
 	@echo "Current environment: $(if $(CURRENT_ENV),$(CURRENT_ENV),not set)"
 
@@ -150,6 +163,18 @@ setup:
 	helm install prometheus prometheus-community/prometheus \
 		--namespace $(NAMESPACE) \
 		-f prometheus-config.yaml 2>/dev/null || echo "Prometheus already installed"; \
+	\
+	echo ""; \
+	echo "Step 10: Installing Chaos Mesh..."; \
+	helm repo add chaos-mesh https://charts.chaos-mesh.org 2>/dev/null || true; \
+	helm repo update; \
+	helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh \
+		--namespace $(CHAOS_NAMESPACE) --create-namespace \
+		--version $(CHAOS_MESH_VERSION) \
+		--set chaosDaemon.runtime=containerd \
+		--set chaosDaemon.socketPath=/run/containerd/containerd.sock \
+		--set chaosDaemon.env.LOG_LEVEL=warn; \
+	kubectl apply -f chaos/chaos-rbac.yaml; \
 	\
 	echo ""; \
 	echo "=== Setup complete! ($$ENV) ==="; \
@@ -384,3 +409,52 @@ guardrails-setup: guardrails-push guardrails-dep
 
 guardrails-teardown:
 	@kubectl delete deployment xtdb-fhir-guardrails -n $(NAMESPACE) || true
+
+# Scale XTDB nodes to 3, generator and guardrails to 1
+scale-up:
+	@echo "Scaling XTDB statefulset to 3..."
+	@kubectl scale statefulset xtdb-statefulset --replicas=3 -n $(NAMESPACE)
+	@echo "Scaling generator to 1..."
+	@kubectl scale deployment xtdb-fhir-generator --replicas=1 -n $(NAMESPACE) || true
+	@echo "Scaling guardrails to 1..."
+	@kubectl scale deployment xtdb-fhir-guardrails --replicas=1 -n $(NAMESPACE) || true
+	@echo "Done. Use 'make pods' to verify."
+
+# Scale XTDB nodes, generator, and guardrails to zero (stops workloads without removing them)
+scale-down:
+	@echo "Scaling XTDB statefulset to 0..."
+	@kubectl scale statefulset xtdb-statefulset --replicas=0 -n $(NAMESPACE)
+	@echo "Scaling generator to 0..."
+	@kubectl scale deployment xtdb-fhir-generator --replicas=0 -n $(NAMESPACE) || true
+	@echo "Scaling guardrails to 0..."
+	@kubectl scale deployment xtdb-fhir-guardrails --replicas=0 -n $(NAMESPACE) || true
+	@echo "Done. Use 'make pods' to verify."
+
+# ===========================================
+# Chaos Mesh (opt-in chaos engineering)
+# ===========================================
+
+chaos-install:
+	helm repo add chaos-mesh https://charts.chaos-mesh.org 2>/dev/null || true
+	helm repo update
+	helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh \
+	    --namespace $(CHAOS_NAMESPACE) --create-namespace \
+	    --version $(CHAOS_MESH_VERSION) \
+	    --set chaosDaemon.runtime=containerd \
+	    --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
+	    --set chaosDaemon.env.LOG_LEVEL=warn
+	kubectl apply -f chaos/chaos-rbac.yaml
+
+chaos-apply:
+	kubectl apply -f chaos/xtdb-podchaos.yaml
+
+chaos-delete:
+	kubectl delete -f chaos/xtdb-podchaos.yaml 2>/dev/null || true
+
+chaos-status:
+	kubectl get pods -n $(CHAOS_NAMESPACE)
+	kubectl get podchaos -n $(CHAOS_NAMESPACE) 2>/dev/null || true
+
+chaos-teardown:
+	helm uninstall chaos-mesh --namespace $(CHAOS_NAMESPACE) || true
+	kubectl delete namespace $(CHAOS_NAMESPACE) 2>/dev/null || true

@@ -1,0 +1,73 @@
+# Chaos Mesh RBAC
+#
+# Three bindings are required for a user to submit chaos experiments:
+#
+# 1. chaos-mesh namespace — grants the user permission to create Schedule/
+#    PodChaos CRs in the chaos-mesh namespace (where experiments live).
+#
+# 2. xtdb-deployment (admin) — grants the user pod delete/get/list access
+#    so Chaos Mesh's admission webhook (vauth.kb.io) can confirm the user
+#    is allowed to affect pods in the target namespace.
+#
+# 3. xtdb-deployment (chaos-mesh-target Role) — grants create/delete on
+#    chaos-mesh.org CRs in the target namespace. The vauth webhook performs
+#    a SubjectAccessReview for "can this user create podchaos in <target ns>?"
+#    as its primary authorization check. The built-in `admin` ClusterRole
+#    does not cover the chaos-mesh.org API group, so a dedicated Role is
+#    required.
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chaos-mesh-submitter
+  namespace: chaos-mesh
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: User
+    name: "arn:aws:sts::380613616955:assumed-role/AWSReservedSSO_AdministratorAccess_4cdeb1369a114010/egg"
+    apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chaos-mesh-submitter
+  namespace: xtdb-deployment
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: User
+    name: "arn:aws:sts::380613616955:assumed-role/AWSReservedSSO_AdministratorAccess_4cdeb1369a114010/egg"
+    apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chaos-mesh-target
+  namespace: xtdb-deployment
+rules:
+  - apiGroups: ["chaos-mesh.org"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chaos-mesh-target
+  namespace: xtdb-deployment
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chaos-mesh-target
+subjects:
+  - kind: User
+    name: "arn:aws:sts::380613616955:assumed-role/AWSReservedSSO_AdministratorAccess_4cdeb1369a114010/egg"
+    apiGroup: rbac.authorization.k8s.io
