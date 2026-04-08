@@ -17,10 +17,10 @@ eks_public_access                    = true
 eks_enable_creator_admin_permissions = true
 eks_create_cloudwatch_log_group      = true
 
-# EKS: Application Node Pool - Performance configuration with local NVMe (x86)
-use_local_nvme_storage              = true
+# EKS: Application Node Pool - ARM/Graviton (no NVMe)
+use_local_nvme_storage              = false
 application_node_pool_ami_type      = "AL2023_x86_64_STANDARD"
-application_node_pool_machine_type  = "i3.large"
+application_node_pool_machine_type  = "m6i.xlarge"
 application_node_pool_min_count     = 3
 application_node_pool_max_count     = 3
 application_node_pool_desired_count = 3

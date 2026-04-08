@@ -15,17 +15,17 @@ tolerations: []
 
 affinity: {}
 
-# Production resources for i3.large nodes (15GB RAM)
+# Production resources for m6i.xlarge nodes (16GB RAM)
 # Dev: use values-dev.yaml for lighter resources (2G memory for t4g.medium)
 resources:
   limits:
     cpu: "1000m"
     memory: "10G"
-    ephemeral-storage: 100Gi
+    ephemeral-storage: 40Gi
   requests:
     cpu: "750m"
     memory: "10G"
-    ephemeral-storage: 100Gi
+    ephemeral-storage: 40Gi
 
 podSecurityContext:
   runAsUser: 20000
@@ -89,6 +89,7 @@ xtdbConfig:
 
     diskCache:
       path: /var/lib/xtdb/buffers/disk-cache
+      maxSizeBytes: 30064771072  # 28 GiB (leave headroom below 35 GiB EmptyDir limit)
 
     healthz:
       host: '*'
@@ -97,7 +98,7 @@ xtdbConfig:
   # Volume size settings for XTDB Local Disk Cache (uses ephemeral storage)
   # Dev: use values-dev.yaml for smaller cache (5Gi)
   localDiskCache:
-    sizeLimit: "50Gi"
+    sizeLimit: "35Gi"
 
   # Extra Env:
   env:

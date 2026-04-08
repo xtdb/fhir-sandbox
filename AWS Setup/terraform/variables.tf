@@ -77,22 +77,22 @@ variable "eks_create_cloudwatch_log_group" {
 }
 
 # Application Node Pool
-# Production defaults (i3.large with NVMe). For dev (t4g.medium ARM), use dev.tfvars
+# Production defaults (m6i.xlarge x86). For dev (t4g.medium ARM), use dev.tfvars
 
 variable "use_local_nvme_storage" {
-  description = "Whether to use local NVMe storage (for i3 instances). Dev: set to false for EBS-only instances like t4g."
+  description = "Whether to use local NVMe storage (for i3 instances). Set to false for EBS-only instances like m6g/t4g."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "application_node_pool_machine_type" {
   description = "Instance type for the application node pool. Dev: use t4g.medium (ARM, 4GB) via dev.tfvars"
   type        = string
-  default     = "i3.large"
+  default     = "m6i.xlarge"
 }
 
 variable "application_node_pool_ami_type" {
-  description = "AMI type for the node pool. Dev: use AL2023_ARM_64_STANDARD for ARM (t4g) via dev.tfvars"
+  description = "AMI type for the node pool. x86 for m6i, ARM for m6g/t4g instances."
   type        = string
   default     = "AL2023_x86_64_STANDARD"
 }

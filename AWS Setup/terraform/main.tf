@@ -165,6 +165,19 @@ module "xtdb_eks" {
       max_size       = var.application_node_pool_max_count
       desired_size   = var.application_node_pool_desired_count
 
+      # EBS root volume - accommodates XTDB disk cache + container images + kubelet overhead
+      # Only needed for EBS-only instances (m6g/t4g); i3 instances used local NVMe via RAID0
+      block_device_mappings = var.use_local_nvme_storage ? {} : {
+        root = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 50
+            volume_type           = "gp3"
+            delete_on_termination = true
+          }
+        }
+      }
+
       # Force nodes into eu-west-1a (first subnet) for Prometheus/Grafana static IP setup
       subnet_ids = [module.xtdb_vpc.public_subnets[0]]
 
