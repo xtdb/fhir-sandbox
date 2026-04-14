@@ -5,7 +5,6 @@ terraform {
     bucket  = "xtdb-fhir-terraform-state"
     key     = "terraform/state.tfstate"
     region  = "eu-west-1"
-    profile = "xtdb"
   }
 
 required_providers {

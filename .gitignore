@@ -17,3 +17,7 @@ logs
 # Clojure
 .nrepl-port
 .cpcache/
+
+# Personal settings
+/AWS Setup/terraform/.envrc
+/AWS Setup/.envrc
