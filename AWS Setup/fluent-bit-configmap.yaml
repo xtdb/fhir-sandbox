@@ -78,13 +78,22 @@ data:
         Kubelet_Port        10250
         Buffer_Size         0
 
-    # Multiline first (concatenate stack traces), then parse
-    # XTDB and apps doing similar logging
+    # XTDB: try JSON first
+    [FILTER]
+        Name                parser
+        Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
+        Key_Name            log
+        Parser              xtdb_json
+        Reserve_Data        On
+
+    # XTDB: multiline for non-JSON (stack traces in plaintext format)
     [FILTER]
         Name                multiline
         Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
         multiline.key_content log
         multiline.parser    java_multiline
+
+    # XTDB: plaintext fallback (only hits if log key still exists — i.e., JSON parse failed)
     [FILTER]
         Name                parser
         Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
@@ -97,6 +106,13 @@ data:
         Key_Name            log
         Parser              logback_status
         Reserve_Data        On
+
+    # XTDB: rename any remaining "log" field to "message"
+    [FILTER]
+        Name                modify
+        Match_Regex         application\.var\.log\.containers\.(xtdb-statefulset|xtdb-fhir-generator|xtdb-fhir-guardrails)-.*
+        Rename              log message
+        Remove              time
 
     # Kafka/Strimzi
     [FILTER]
@@ -245,6 +261,12 @@ data:
         Format              regex
         Regex               (?<log>(?<="log":")\d{4}[\/-]\d{1,2}[\/-]\d{1,2}[ T]\d{2}:\d{2}:\d{2}(?!\.).*?)(?<!\\)".*(?<stream>(?<="stream":").*?)".*(?<time>\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}\.\w*).*(?=})
         Time_Key            time
+        Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
+    [PARSER]
+        Name                xtdb_json
+        Format              json
+        Time_Key            Timestamp
         Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
 
     [PARSER]

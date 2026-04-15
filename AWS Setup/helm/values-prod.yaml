@@ -20,3 +20,7 @@ xtdbConfig:
 
   localDiskCache:
     sizeLimit: "35Gi"
+
+  env:
+    XTDB_SINGLE_WRITER: true
+    XTDB_LOG_FORMAT: json
