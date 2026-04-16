@@ -169,6 +169,19 @@ containerLogs:
             Parser              logfmt
             Reserve_Data        On
 
+          # Set default level for non-XTDB logs where no parser matched
+          [FILTER]
+            Name                modify
+            Match_Regex         application\.var\.log\.containers\.(?!xtdb).*
+            Add                 level UNKNOWN
+
+          # Drop non-error logs from all non-XTDB pods
+          # Keeps: ERROR, E, E!, F, F!, error, and UNKNOWN (unparsed)
+          [FILTER]
+            Name                grep
+            Match_Regex         application\.var\.log\.containers\.(?!xtdb).*
+            Regex               level ^(ERROR|FATAL|[EF]!?|error|UNKNOWN)$
+
           # END CUSTOM
 
           [OUTPUT]
