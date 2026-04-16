@@ -15,6 +15,8 @@ spec:
     metadata:
       labels:
         app: xtdb-statefulset
+      annotations:
+        fluentbit.io/parser: app_json
     spec:
       # Requires the service account to be created & federated identity set up
       serviceAccountName: {{ required (printf "xtdbConfig.serviceAccount is required - ensure you set it up on %s and link to an IAM role using IAM Roles for Service Accounts (IRSA)" .Release.Namespace) .Values.xtdbConfig.serviceAccount }}

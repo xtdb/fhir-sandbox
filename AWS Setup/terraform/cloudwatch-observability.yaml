@@ -28,6 +28,13 @@ containerLogs:
 
         # BEGIN CUSTOM
 
+        # XTDB: From the JSON logs, extract timestamp as @timestamp
+        [PARSER]
+          Name                app_json
+          Format              json
+          Time_Key            timestamp
+          Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
         # Kafka/Strimzi: "2026-04-16 09:15:37 INFO [thread] Class:line - message"
         [PARSER]
           Name                kafka
