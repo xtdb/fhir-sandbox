@@ -59,6 +59,11 @@ containerLogs:
           Format              regex
           Regex               ^\[\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\]\s+\[(?<level>\w+)\]\s+(?<log>.*)$
 
+        # Prometheus (logfmt): "time=2026-04-16T11:00:11.080Z level=INFO source=db.go:1921 msg=..."
+        [PARSER]
+          Name                logfmt
+          Format              logfmt
+
         # END CUSTOM
 
       extraFiles:
@@ -154,6 +159,14 @@ containerLogs:
             Match_Regex         application\.var\.log\.containers\.fluent-bit.*
             Key_Name            log
             Parser              fluentbit_log
+            Reserve_Data        On
+
+          # Prometheus: extract fields from logfmt format
+          [FILTER]
+            Name                parser
+            Match_Regex         application\.var\.log\.containers\.prometheus.*
+            Key_Name            log
+            Parser              logfmt
             Reserve_Data        On
 
           # END CUSTOM
