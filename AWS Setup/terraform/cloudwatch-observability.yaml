@@ -25,6 +25,35 @@ containerLogs:
           Regex               (?<log>(?<="log":")\d{4}[\/-]\d{1,2}[\/-]\d{1,2}[ T]\d{2}:\d{2}:\d{2}(?!\.).*?)(?<!\\)".*(?<stream>(?<="stream":").*?)".*(?<time>\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}\.\w*).*(?=})
           Time_Key            time
           Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
+        # BEGIN CUSTOM
+
+        # Kafka/Strimzi: "2026-04-16 09:15:37 INFO [thread] Class:line - message"
+        [PARSER]
+          Name                kafka
+          Format              regex
+          Regex               ^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+(?<level>\w+)\s+(?<log>.*)$
+
+        # EBS CSI (klog): "E0416 09:16:03.779103 1 reflector.go:204] message"
+        [PARSER]
+          Name                klog
+          Format              regex
+          Regex               ^(?<level>[EIWDF])\d{4}\s+(?<log>.*)$
+
+        # CloudWatch agent: "2026-04-16T09:15:50Z W! {json...}"
+        [PARSER]
+          Name                cwagent_log
+          Format              regex
+          Regex               ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+(?<level>[EIWDF]!)\s+(?<log>.*)$
+
+        # FluentBit: "[2026/04/16 09:59:48.412373258] [error] message"
+        [PARSER]
+          Name                fluentbit_log
+          Format              regex
+          Regex               ^\[\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\]\s+\[(?<level>\w+)\]\s+(?<log>.*)$
+
+        # END CUSTOM
+
       extraFiles:
         application-log.conf: |
           [INPUT]
@@ -86,6 +115,42 @@ containerLogs:
             Buffer_Size         0
             Use_Pod_Association On
 
+          # BEGIN CUSTOM
+
+          # Kafka/Strimzi: extract level from plaintext logs
+          [FILTER]
+            Name                parser
+            Match_Regex         application\.var\.log\.containers\.(kafka|strimzi).*
+            Key_Name            log
+            Parser              kafka
+            Reserve_Data        On
+
+          # EBS CSI: extract level from klog format
+          [FILTER]
+            Name                parser
+            Match_Regex         application\.var\.log\.containers\.ebs-csi.*
+            Key_Name            log
+            Parser              klog
+            Reserve_Data        On
+
+          # CloudWatch agent: extract level from agent logs
+          [FILTER]
+            Name                parser
+            Match_Regex         application\.var\.log\.containers\.cloudwatch-agent.*
+            Key_Name            log
+            Parser              cwagent_log
+            Reserve_Data        On
+
+          # FluentBit: extract level from fluent-bit logs
+          [FILTER]
+            Name                parser
+            Match_Regex         application\.var\.log\.containers\.fluent-bit.*
+            Key_Name            log
+            Parser              fluentbit_log
+            Reserve_Data        On
+
+          # END CUSTOM
+
           [OUTPUT]
             Name                cloudwatch_logs
             Match               application.*
@@ -95,3 +160,14 @@ containerLogs:
             auto_create_group   true
             extra_user_agent    container-insights
             add_entity          true
+
+# BEGIN CUSTOM
+
+manager:
+  # Disable Application Signals, to avoid noise in XTDB logs from the auto-injected OpenTelemetry agent.
+  # Re-enable to get traces, service maps, and request metrics in CloudWatch.
+  applicationSignals:
+    autoMonitor:
+      monitorAllServices: false
+      
+# END CUSTOM
