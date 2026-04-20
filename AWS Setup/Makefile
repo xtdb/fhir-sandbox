@@ -66,6 +66,12 @@ help:
 	@echo "  make gen-setup      - Full generator deployment (build + push + deploy)"
 	@echo "  make gen-teardown   - Remove generator deployment"
 	@echo ""
+	@echo "Fluent Bit log forwarding (CloudWatch Logs):"
+	@echo "  make log-dep        - Deploy fluent-bit DaemonSet to amazon-cloudwatch ns"
+	@echo "  make log-logs       - Tail fluent-bit pod logs"
+	@echo "  make log-stat       - Show fluent-bit pod status"
+	@echo "  make log-teardown   - Remove fluent-bit"
+	@echo ""
 	@echo "Chaos engineering (opt-in, run after setup):"
 	@echo "  make chaos-install  - Install Chaos Mesh via Helm"
 	@echo "  make chaos-apply    - Apply XTDB pod-kill experiment"
@@ -409,6 +415,33 @@ guardrails-setup: guardrails-push guardrails-dep
 
 guardrails-teardown:
 	@kubectl delete deployment xtdb-fhir-guardrails -n $(NAMESPACE) || true
+
+# ===========================================
+# Fluent Bit log forwarder (CloudWatch Logs)
+# Applies the trimmed cwagent-operator-rendered.yaml; cluster name and region
+# are sed-injected. IAM role and Pod Identity association are provisioned by
+# Terraform — fluent-bit inherits creds via the cloudwatch-agent SA.
+LOG_NAMESPACE := amazon-cloudwatch
+LOG_CLUSTER := xtdb-cluster
+LOG_REGION := eu-west-1
+
+log-dep:
+	@echo "Deploying fluent-bit..."
+	@sed -e 's|CLUSTER_NAME_PLACEHOLDER|$(LOG_CLUSTER)|g' \
+	     -e 's|AWS_REGION_PLACEHOLDER|$(LOG_REGION)|g' \
+	     cwagent-operator-rendered.yaml | kubectl apply -f -
+	@kubectl rollout restart daemonset/fluent-bit -n $(LOG_NAMESPACE)
+
+log-logs:
+	@kubectl logs -f -l k8s-app=fluent-bit -n $(LOG_NAMESPACE)
+
+log-stat:
+	@kubectl get pods -l k8s-app=fluent-bit -n $(LOG_NAMESPACE)
+
+log-teardown:
+	@sed -e 's|CLUSTER_NAME_PLACEHOLDER|$(LOG_CLUSTER)|g' \
+	     -e 's|AWS_REGION_PLACEHOLDER|$(LOG_REGION)|g' \
+	     cwagent-operator-rendered.yaml | kubectl delete -f - || true
 
 # Scale XTDB nodes to 3, generator and guardrails to 1
 scale-up:
