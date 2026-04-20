@@ -202,5 +202,18 @@ manager:
   applicationSignals:
     autoMonitor:
       monitorAllServices: false
-      
+
+agent:
+  config:
+    logs:
+      metrics_collected:
+        kubernetes:
+          # Disable enhanced Container Insights: stops the kube-apiserver scraper
+          # (thousands of EMF docs/minute, one per metric × resource × verb × code)
+          # and drops extra per-container fields (pgfault, memory_failcnt, etc.).
+          # Basic CPU/memory Container Insights still work.
+          enhanced_container_insights: false
+          # No GPU/Neuron nodes in this cluster.
+          accelerated_compute_metrics: false
+
 # END CUSTOM
