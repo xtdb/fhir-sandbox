@@ -122,6 +122,11 @@ module "xtdb_eks" {
   enable_cluster_creator_admin_permissions = var.eks_enable_creator_admin_permissions
   create_cloudwatch_log_group              = var.eks_create_cloudwatch_log_group
 
+  # Drop `audit` and `authenticator` from the module default — both are
+  # dominated by EKS Auto Mode controllers' lease-renew chatter and drown
+  # out anything useful. Module default is ["audit","api","authenticator"].
+  cluster_enabled_log_types = ["api"]
+
   vpc_id     = module.xtdb_vpc.vpc_id
   subnet_ids = module.xtdb_vpc.public_subnets
 
