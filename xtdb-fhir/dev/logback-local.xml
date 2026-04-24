@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration scan="true" scanPeriod="5 seconds">
-    <include resource="logback-common.xml"/>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- Use stderr to avoid infinite loop (stdout is redirected to capture Synthea output) -->
+        <target>System.err</target>
+        <encoder>
+            <!-- Same as XTDB -->
+            <pattern>%d{HH:mm:ss} | %-5level %logger{36} | %msg%n</pattern>
+        </encoder>
+    </appender>
 
     <logger name="com.example" level="DEBUG"/>
-    <logger name="xtdb.fhir" level="INFO"/>
+    <logger name="xtdb.fhir" level="DEBUG"/>
     <logger name="org.springframework" level="INFO"/>
     <logger name="stdout" level="OFF"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
 </configuration>
