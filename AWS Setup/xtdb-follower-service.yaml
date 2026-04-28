@@ -1,0 +1,20 @@
+# Dedicated in-cluster Service targeting only xtdb-statefulset-1 (the
+# follower). Used by the ingestion benchmark jobs to isolate throughput
+# measurements from the leader. Does not replace xtdb-service — app and
+# admin traffic continue to flow through that LoadBalancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: xtdb-service-follower
+  namespace: xtdb-deployment
+  labels:
+    app: xtdb-statefulset
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: server
+  selector:
+    app: xtdb-statefulset
+    statefulset.kubernetes.io/pod-name: xtdb-statefulset-1

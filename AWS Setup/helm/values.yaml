@@ -20,11 +20,11 @@ affinity: {}
 resources:
   limits:
     cpu: "1000m"
-    memory: "10G"
+    memory: "13G"
     ephemeral-storage: 40Gi
   requests:
     cpu: "750m"
-    memory: "10G"
+    memory: "13G"
     ephemeral-storage: 40Gi
 
 podSecurityContext:

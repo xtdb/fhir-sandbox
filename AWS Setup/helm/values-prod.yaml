@@ -3,20 +3,25 @@
 
 nodeCount: 3
 
-resources:
-  limits:
-    cpu: "1000m"
-    memory: "10G"
-    ephemeral-storage: 100Gi
-  requests:
-    cpu: "750m"
-    memory: "10G"
-    ephemeral-storage: 100Gi
+image:
+  repository: 380613616955.dkr.ecr.eu-west-1.amazonaws.com/xtdb-aws
+  tag: fhir-custom
+  pullPolicy: Always
 
 xtdbConfig:
-  # Full JVM memory for i3.large instances (15GB RAM)
-  # heap (3G) + direct memory (3G) + metaspace (500m) = ~6.5GB per pod
-  jdkOptions: "-Xmx3000m -Xms3000m -XX:MaxDirectMemorySize=3000m -XX:MaxMetaspaceSize=500m"
+  jdkOptions: >-
+    -Dkotlinx.coroutines.debug=on
+    -XX:+UseG1GC
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:HeapDumpPath=/var/lib/xtdb/
+    -Xmx7G
+    -Xms2G
+    -XX:MaxDirectMemorySize=2G
+    -Dclojure.server.repl="{:port 7888 :accept clojure.core.server/repl}"
+#  jdkOptions: "-Dlog4j2.debug=true -Dkotlinx.coroutines.debug=on -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/lib/xtdb/ -Xmx5G -Xms2G -Dclojure.server.repl=\"{:port 7888 :accept clojure.core.server/repl}\""
+#  jdkOptions: "-Dkotlinx.coroutines.stacktrace.recovery=true -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/lib/xtdb/ -Xmx5G -Xms2G -Dclojure.server.repl=\"{:port 7888 :accept clojure.core.server/repl}\""
+#  jdkOptions: "-agentpath:/opt/yourkit/libyjpagent.so=port=10001,listen=all -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/lib/xtdb/ -Xmx5G -Xms2G -Dclojure.server.repl=\"{:port 7888 :accept clojure.core.server/repl}\""
+#  jdkOptions: "-Xmx3G -Xms3G -XX:MaxDirectMemorySize=3G -XX:MaxMetaspaceSize=500m -Dio.netty.maxDirectMemory=1073741824 -Dclojure.server.repl=\"{:port 7888 :accept clojure.core.server/repl}\""
 
   localDiskCache:
     sizeLimit: "35Gi"
@@ -24,3 +29,38 @@ xtdbConfig:
   env:
     XTDB_SINGLE_WRITER: true
     XTDB_LOG_FORMAT: json
+
+#    XTDB_LOG_JSON_TEMPLATE: classpath:xtdb/logging/AzureMonitorLayout.json
+#    XTDB_LOGGING_LEVEL_metrics: "debug"
+#    XTDB_LOG_LEVEL_xtdb_metrics: "debug"
+#    XTDB_LOG_LEVEL_xtdb_aws_S3: "trace"
+#    XTDB_LOG_LEVEL_xtdb_pgwire: "debug"
+#    XTDB_LOG_LEVEL_xtdb_compactor: "debug"
+#    XTDB_LOG_LEVEL_xtdb_segment: "debug"
+#    XTDB_LOG_LEVEL_xtdb_metadata: "debug"
+#    XTDB_LOGGER_LEVEL_xtdb_garbage__collector: "debug"
+#    XTDB_LOG_LEVEL_software_amazon_awssdk: "debug"
+    XTDB_LOGGING_LEVEL: info
+#    XTDB_LOGGING_LEVEL_AWS: "trace"
+    XTDB_LOGGING_LEVEL_INDEXER: debug
+#    XTDB_LOGGING_LEVEL_PGWIRE: "trace"
+
+# Disable startup probe restarts (for debugging)
+startupProbe:
+  httpGet:
+    path: /healthz/started
+    port: 8080
+  initialDelaySeconds: 60
+  periodSeconds: 15
+  failureThreshold: 9999
+  timeoutSeconds: 10
+
+# Disable liveness probe restarts (for debugging)
+livenessProbe:
+  httpGet:
+    path: /healthz/alive
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  failureThreshold: 9999
+  timeoutSeconds: 10

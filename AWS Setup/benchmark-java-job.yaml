@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bench-java
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: bench-java
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: bench
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: Always
+          env:
+            - name: XTDB_HOST
+              value: "XTDB_HOST_PLACEHOLDER"
+            - name: XTDB_PORT
+              value: "5432"
+            - name: XTDB_DB
+              value: "xtdb"
+            - name: XTDB_USER
+              value: "xtdb"
+            - name: MODE
+              value: "MODE_PLACEHOLDER"
+            - name: TOTAL_ROWS
+              value: "TOTAL_ROWS_PLACEHOLDER"
+            - name: ROWS_PER_TXN
+              value: "ROWS_PER_TXN_PLACEHOLDER"
+            - name: WARMUP_TXNS
+              value: "WARMUP_TXNS_PLACEHOLDER"
+            - name: REWRITE_BATCHED_INSERTS
+              value: "REWRITE_BATCHED_INSERTS_PLACEHOLDER"
+            - name: ASYNC_TX
+              value: "ASYNC_TX_PLACEHOLDER"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

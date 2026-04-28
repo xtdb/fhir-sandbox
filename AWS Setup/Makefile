@@ -13,6 +13,11 @@ S3_BUCKET := xtdb-bucket
 ECR_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
 IMAGE_TAG ?= latest
 
+# XTDB-AWS settings (core XTDB database image)
+XTDB_REPO := /home/egg/src/juxt/xtdb
+ECR_XTDB_AWS_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-aws --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+XTDB_AWS_TAG ?= fhir-custom
+
 # Generator settings (Synthea data generator service)
 # Fetches ECR URL directly from AWS - works on any PC with AWS credentials
 ECR_GENERATOR_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-generator --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
@@ -26,8 +31,11 @@ CHAOS_NAMESPACE    := chaos-mesh
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
-        app-dep app-teardown app-logs gen-build gen-push gen-dep gen-logs \
-        gen-stat gen-setup gen-teardown cloud-logs
+        app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup \
+        gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
+        log-dep log-logs log-stat log-teardown \
+        chaos-install chaos-teardown chaos-apply chaos-delete chaos-status \
+        scale-down scale-up
 
 # Show help/all commands
 help:
@@ -57,6 +65,11 @@ help:
 	@echo "  make app-logs       - View application logs"
 	@echo "  make app-teardown   - Uninstall xtdb-fhir's Helm chart"
 	@echo ""
+	@echo "XTDB-AWS deployment (core database image):"
+	@echo "  make xtdb-build     - Build xtdb-aws Docker image via Gradle"
+	@echo "  make xtdb-push      - Build and push xtdb-aws image to ECR"
+	@echo "  make xtdb-setup     - Full xtdb-aws deployment (build + push + deploy)"
+	@echo ""
 	@echo "Generator deployment (Synthea data generator):"
 	@echo "  make gen-build      - Build xtdb-fhir-generator Docker image"
 	@echo "  make gen-push       - Build and push generator image to ECR"
@@ -78,6 +91,15 @@ help:
 	@echo "  make chaos-delete   - Remove the pod-kill experiment"
 	@echo "  make chaos-status   - Show Chaos Mesh pods and active experiments"
 	@echo "  make chaos-teardown - Uninstall Chaos Mesh entirely"
+	@echo ""
+	@echo "Ingestion benchmark (Java JDBC vs Node.js Postgres.js):"
+	@echo "  make bench-java-build/push/run/logs/teardown"
+	@echo "  make bench-js-build/push/run/logs/teardown"
+	@echo "  make bench-follower-svc            - Apply ClusterIP Service targeting only xtdb-statefulset-1"
+	@echo "  make bench-follower-svc-teardown   - Remove the follower-only Service"
+	@echo "  Overrides: MODE=batched|sequential TOTAL_ROWS=... ROWS_PER_TXN=... WARMUP_TXNS=..."
+	@echo "             ASYNC_TX=true|false (Java only; explicit 'BEGIN (async=true)' per txn)"
+	@echo "             XTDB_HOST=xtdb-service-follower.xtdb-deployment.svc.cluster.local (target follower only)"
 	@echo ""
 	@echo "Current environment: $(if $(CURRENT_ENV),$(CURRENT_ENV),not set)"
 
@@ -345,6 +367,36 @@ app-teardown:
 	@helm uninstall xtdb-fhir --namespace $(NAMESPACE) || true
 
 # ===========================================
+# XTDB-AWS Build & Deploy Targets (core database image)
+# ===========================================
+
+# Build the xtdb-aws Docker image
+xtdb-build:
+	@echo "Building xtdb-aws shadow JAR via Gradle..."
+	cd $(XTDB_REPO) && ./gradlew :docker:aws:shadowJar
+	@echo "Building xtdb-aws Docker image..."
+	cd $(XTDB_REPO) && docker build \
+		-f docker/Dockerfile \
+		--network=host \
+		--build-arg VARIANT=aws \
+		--build-arg GIT_SHA=$(XTDB_AWS_TAG) \
+		--build-arg XTDB_VERSION=2.x-SNAPSHOT \
+		-t xtdb-aws:$(XTDB_AWS_TAG) \
+		.
+
+# Push the xtdb-aws Docker image to ECR
+xtdb-push: xtdb-build
+	@echo "Pushing xtdb-aws to ECR: $(ECR_XTDB_AWS_REPO):$(XTDB_AWS_TAG)"
+	aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_XTDB_AWS_REPO)
+	docker tag xtdb-aws:$(XTDB_AWS_TAG) $(ECR_XTDB_AWS_REPO):$(XTDB_AWS_TAG)
+	docker push $(ECR_XTDB_AWS_REPO):$(XTDB_AWS_TAG)
+
+# Full xtdb-aws deployment (build + push + deploy)
+xtdb-setup: xtdb-push xtdb
+	kubectl rollout restart statefulset xtdb-statefulset -n $(NAMESPACE)
+	@echo "XTDB-AWS fully deployed!"
+
+# ===========================================
 # Generator Build & Deploy Targets (Synthea data generator)
 # ===========================================
 
@@ -491,3 +543,107 @@ chaos-status:
 chaos-teardown:
 	helm uninstall chaos-mesh --namespace $(CHAOS_NAMESPACE) || true
 	kubectl delete namespace $(CHAOS_NAMESPACE) 2>/dev/null || true
+
+# ===========================================
+# Ingestion benchmarks (Java JDBC vs Node.js Postgres.js)
+# Compares client-side batching vs sequential inserts, grouped into
+# XTDB transactions of ROWS_PER_TXN rows each.
+#
+# Override at invocation, e.g.:
+#   make bench-java-run MODE=sequential TOTAL_ROWS=200000
+# ===========================================
+
+ECR_BENCH_JAVA_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-java --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+ECR_BENCH_JS_REPO   ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-js   --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+BENCH_JAVA_TAG      ?= latest
+BENCH_JS_TAG        ?= latest
+
+# Benchmark parameters (same defaults on both runners)
+MODE                    ?= batched
+TOTAL_ROWS              ?= 500000
+ROWS_PER_TXN            ?= 1000
+WARMUP_TXNS             ?= 5
+REWRITE_BATCHED_INSERTS ?= false
+# When true, Java bench issues explicit `BEGIN (async=true)` / `COMMIT` per txn
+# so XTDB does not wait for Kafka ack on commit (lower commit latency).
+ASYNC_TX                ?= false
+# Override to point at a specific node, e.g. the follower-only service:
+#   make bench-js-run XTDB_HOST=xtdb-service-follower.xtdb-deployment.svc.cluster.local
+XTDB_HOST               ?= xtdb-service.xtdb-deployment.svc.cluster.local
+
+.PHONY: bench-java-build bench-java-push bench-java-run bench-java-logs bench-java-teardown \
+        bench-js-build   bench-js-push   bench-js-run   bench-js-logs   bench-js-teardown \
+        bench-follower-svc bench-follower-svc-teardown
+
+# ---- Follower-only Service (isolates bench traffic to xtdb-statefulset-1) ----
+bench-follower-svc:
+	@kubectl apply -f xtdb-follower-service.yaml -n $(NAMESPACE)
+
+bench-follower-svc-teardown:
+	@kubectl delete -f xtdb-follower-service.yaml -n $(NAMESPACE) --ignore-not-found
+
+# ---- Java JDBC ----
+bench-java-build:
+	@echo "Building xtdb-fhir-bench-java image..."
+	@cd ../benchmark/ingestion/java && docker build -t xtdb-fhir-bench-java:$(BENCH_JAVA_TAG) .
+
+bench-java-push: bench-java-build
+	@echo "Pushing xtdb-fhir-bench-java to ECR: $(ECR_BENCH_JAVA_REPO):$(BENCH_JAVA_TAG)"
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_BENCH_JAVA_REPO)
+	@docker tag xtdb-fhir-bench-java:$(BENCH_JAVA_TAG) $(ECR_BENCH_JAVA_REPO):$(BENCH_JAVA_TAG)
+	@docker push $(ECR_BENCH_JAVA_REPO):$(BENCH_JAVA_TAG)
+
+bench-java-run:
+	@echo "Running bench-java Job (mode=$(MODE) total=$(TOTAL_ROWS) batch=$(ROWS_PER_TXN))..."
+	@kubectl delete job bench-java -n $(NAMESPACE) --ignore-not-found
+	@sed -e 's|IMAGE_PLACEHOLDER|$(ECR_BENCH_JAVA_REPO):$(BENCH_JAVA_TAG)|g' \
+	     -e 's|XTDB_HOST_PLACEHOLDER|$(XTDB_HOST)|g' \
+	     -e 's|MODE_PLACEHOLDER|$(MODE)|g' \
+	     -e 's|TOTAL_ROWS_PLACEHOLDER|$(TOTAL_ROWS)|g' \
+	     -e 's|ROWS_PER_TXN_PLACEHOLDER|$(ROWS_PER_TXN)|g' \
+	     -e 's|WARMUP_TXNS_PLACEHOLDER|$(WARMUP_TXNS)|g' \
+	     -e 's|REWRITE_BATCHED_INSERTS_PLACEHOLDER|$(REWRITE_BATCHED_INSERTS)|g' \
+	     -e 's|ASYNC_TX_PLACEHOLDER|$(ASYNC_TX)|g' \
+	     benchmark-java-job.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@echo "Waiting for pod to start..."
+	@until kubectl get pod -l app=bench-java -n $(NAMESPACE) -o name 2>/dev/null | grep -q .; do sleep 1; done
+	@kubectl wait --for=condition=Ready pod -l app=bench-java -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
+	@kubectl logs -f -l app=bench-java -n $(NAMESPACE)
+
+bench-java-logs:
+	@kubectl logs -f -l app=bench-java -n $(NAMESPACE)
+
+bench-java-teardown:
+	@kubectl delete job bench-java -n $(NAMESPACE) --ignore-not-found
+
+# ---- Node.js Postgres.js ----
+bench-js-build:
+	@echo "Building xtdb-fhir-bench-js image..."
+	@cd ../benchmark/ingestion/js && docker build -t xtdb-fhir-bench-js:$(BENCH_JS_TAG) .
+
+bench-js-push: bench-js-build
+	@echo "Pushing xtdb-fhir-bench-js to ECR: $(ECR_BENCH_JS_REPO):$(BENCH_JS_TAG)"
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_BENCH_JS_REPO)
+	@docker tag xtdb-fhir-bench-js:$(BENCH_JS_TAG) $(ECR_BENCH_JS_REPO):$(BENCH_JS_TAG)
+	@docker push $(ECR_BENCH_JS_REPO):$(BENCH_JS_TAG)
+
+bench-js-run:
+	@echo "Running bench-js Job (mode=$(MODE) total=$(TOTAL_ROWS) batch=$(ROWS_PER_TXN))..."
+	@kubectl delete job bench-js -n $(NAMESPACE) --ignore-not-found
+	@sed -e 's|IMAGE_PLACEHOLDER|$(ECR_BENCH_JS_REPO):$(BENCH_JS_TAG)|g' \
+	     -e 's|XTDB_HOST_PLACEHOLDER|$(XTDB_HOST)|g' \
+	     -e 's|MODE_PLACEHOLDER|$(MODE)|g' \
+	     -e 's|TOTAL_ROWS_PLACEHOLDER|$(TOTAL_ROWS)|g' \
+	     -e 's|ROWS_PER_TXN_PLACEHOLDER|$(ROWS_PER_TXN)|g' \
+	     -e 's|WARMUP_TXNS_PLACEHOLDER|$(WARMUP_TXNS)|g' \
+	     benchmark-js-job.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@echo "Waiting for pod to start..."
+	@until kubectl get pod -l app=bench-js -n $(NAMESPACE) -o name 2>/dev/null | grep -q .; do sleep 1; done
+	@kubectl wait --for=condition=Ready pod -l app=bench-js -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
+	@kubectl logs -f -l app=bench-js -n $(NAMESPACE)
+
+bench-js-logs:
+	@kubectl logs -f -l app=bench-js -n $(NAMESPACE)
+
+bench-js-teardown:
+	@kubectl delete job bench-js -n $(NAMESPACE) --ignore-not-found

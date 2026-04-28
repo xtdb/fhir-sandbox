@@ -1,0 +1,16 @@
+{
+  "name": "bench-postgresjs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "bench.js",
+  "scripts": {
+    "start": "node bench.js"
+  },
+  "dependencies": {
+    "postgres": "^3.4.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
