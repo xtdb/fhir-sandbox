@@ -14,7 +14,7 @@ xtdbConfig:
     -XX:+UseG1GC
     -XX:+HeapDumpOnOutOfMemoryError
     -XX:HeapDumpPath=/var/lib/xtdb/
-    -Xmx7G
+    -Xmx5G
     -Xms2G
     -XX:MaxDirectMemorySize=2G
     -Dclojure.server.repl="{:port 7888 :accept clojure.core.server/repl}"
@@ -38,8 +38,8 @@ xtdbConfig:
 #    XTDB_LOG_LEVEL_xtdb_compactor: "debug"
 #    XTDB_LOG_LEVEL_xtdb_segment: "debug"
 #    XTDB_LOG_LEVEL_xtdb_metadata: "debug"
-#    XTDB_LOGGER_LEVEL_xtdb_garbage__collector: "debug"
-#    XTDB_LOG_LEVEL_software_amazon_awssdk: "debug"
+    XTDB_LOGGER_LEVEL_xtdb_garbage__collector: debug
+#    XTDB_LOGGER_LEVEL_software_amazon_awssdk: debug
     XTDB_LOGGING_LEVEL: info
 #    XTDB_LOGGING_LEVEL_AWS: "trace"
     XTDB_LOGGING_LEVEL_INDEXER: debug
