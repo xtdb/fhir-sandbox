@@ -52,7 +52,7 @@
       <id>jitpack.io</id>
       <url>https://jitpack.io</url>
     </repository>
-<repository>
+    <repository>
       <id>clojars</id>
       <url>https://repo.clojars.org/</url>
       <releases><enabled>true</enabled></releases>
@@ -134,6 +134,11 @@
     <dependency>
       <groupId>ch.qos.logback</groupId>
       <artifactId>logback-classic</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>net.logstash.logback</groupId>
+      <artifactId>logstash-logback-encoder</artifactId>
+      <version>8.0</version>
     </dependency>
 
     <!-- Testing -->

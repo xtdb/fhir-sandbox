@@ -1,13 +1,25 @@
 <configuration>
-  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-    <encoder>
-      <!-- Same as XTDB -->
-      <pattern>%d{HH:mm:ss} | %-5level %logger{36} | %msg%n</pattern>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- Field names to match XTDB's -->
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp>
+          <fieldName>timestamp</fieldName>
+          <pattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</pattern>
+          <timeZone>UTC</timeZone>
+        </timestamp>
+        <logLevel><fieldName>level</fieldName></logLevel>
+        <loggerName><fieldName>logger</fieldName></loggerName>
+        <message><fieldName>message</fieldName></message>
+        <threadName><fieldName>thread</fieldName></threadName>
+        <mdc><fieldName>context</fieldName></mdc>
+        <stackTrace><fieldName>exception</fieldName></stackTrace>
+      </providers>
     </encoder>
   </appender>
 
   <root level="INFO">
-    <appender-ref ref="STDOUT"/>
+    <appender-ref ref="CONSOLE"/>
   </root>
 
   <logger name="com.zaxxer.hikari" level="INFO"/>
