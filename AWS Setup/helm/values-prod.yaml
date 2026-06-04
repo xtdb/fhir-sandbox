@@ -3,11 +3,6 @@
 
 nodeCount: 3
 
-image:
-  repository: 380613616955.dkr.ecr.eu-west-1.amazonaws.com/xtdb-aws
-  tag: fhir-custom
-  pullPolicy: Always
-
 xtdbConfig:
   jdkOptions: >-
     -Dkotlinx.coroutines.debug=on
