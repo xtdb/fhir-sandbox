@@ -31,7 +31,7 @@ CHAOS_NAMESPACE    := chaos-mesh
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
-        app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup \
+        app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
         log-dep log-logs log-stat log-teardown \
         chaos-install chaos-teardown chaos-apply chaos-delete chaos-status \
@@ -69,6 +69,7 @@ help:
 	@echo "  make xtdb-build     - Build xtdb-aws Docker image via Gradle"
 	@echo "  make xtdb-push      - Build and push xtdb-aws image to ECR"
 	@echo "  make xtdb-setup     - Full xtdb-aws deployment (build + push + deploy)"
+	@echo "  make xtdb-upgrade   - Helm upgrade an existing xtdb-aws release (no install)"
 	@echo ""
 	@echo "Generator deployment (Synthea data generator):"
 	@echo "  make gen-build      - Build xtdb-fhir-generator Docker image"
@@ -303,6 +304,26 @@ xtdb:
 	fi; \
 	echo "Installing/upgrading XTDB with Helm ($$ENV)..."; \
 	helm upgrade --install xtdb-aws ./helm \
+		--namespace $(NAMESPACE) \
+		-f helm/values.yaml \
+		-f helm/values-$$ENV.yaml \
+		--set xtdbConfig.serviceAccount="$(SERVICE_ACCOUNT)" \
+		--set xtdbConfig.s3Bucket="$(S3_BUCKET)"
+
+# Upgrade an already-installed xtdb-aws release (no --install)
+xtdb-upgrade:
+	@if [ -z "$(CURRENT_ENV)" ]; then \
+		echo "Select environment:"; \
+		echo "  1) dev"; \
+		echo "  2) prod"; \
+		read -p "Enter choice [1/2]: " choice; \
+		if [ "$$choice" = "1" ]; then ENV=dev; else ENV=prod; fi; \
+	else \
+		ENV=$(CURRENT_ENV); \
+		echo "Using current environment: $$ENV"; \
+	fi; \
+	echo "Upgrading XTDB with Helm ($$ENV)..."; \
+	helm upgrade xtdb-aws ./helm \
 		--namespace $(NAMESPACE) \
 		-f helm/values.yaml \
 		-f helm/values-$$ENV.yaml \
