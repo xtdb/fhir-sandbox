@@ -31,7 +31,7 @@ CHAOS_NAMESPACE    := chaos-mesh
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
-        app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade \
+        app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
         log-dep log-logs log-stat log-teardown \
         chaos-install chaos-teardown chaos-apply chaos-delete chaos-status \
@@ -70,6 +70,7 @@ help:
 	@echo "  make xtdb-push      - Build and push xtdb-aws image to ECR"
 	@echo "  make xtdb-setup     - Full xtdb-aws deployment (build + push + deploy)"
 	@echo "  make xtdb-upgrade   - Helm upgrade an existing xtdb-aws release (no install)"
+	@echo "  make xtdb-logs      - Tail logs for a chosen xtdb-statefulset member"
 	@echo ""
 	@echo "Generator deployment (Synthea data generator):"
 	@echo "  make gen-build      - Build xtdb-fhir-generator Docker image"
@@ -411,6 +412,12 @@ xtdb-push: xtdb-build
 	aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_XTDB_AWS_REPO)
 	docker tag xtdb-aws:$(XTDB_AWS_TAG) $(ECR_XTDB_AWS_REPO):$(XTDB_AWS_TAG)
 	docker push $(ECR_XTDB_AWS_REPO):$(XTDB_AWS_TAG)
+
+# View logs for a chosen xtdb-statefulset member (prompts for the pod ordinal)
+xtdb-logs:
+	@read -p "Which xtdb-statefulset member? [0-$$(($(shell kubectl get statefulset xtdb-statefulset -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)-1))]: " ordinal; \
+	echo "Tailing logs for xtdb-statefulset-$$ordinal..."; \
+	kubectl logs -f xtdb-statefulset-$$ordinal -n $(NAMESPACE)
 
 # Full xtdb-aws deployment (build + push + deploy)
 xtdb-setup: xtdb-push xtdb
