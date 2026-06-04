@@ -1,0 +1,15 @@
+# Production PostgreSQL - still single-instance, but larger storage and resources.
+# XTDB depends on this instance, so it gets a roomier PVC than dev.
+# Usage: helm upgrade --install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql \
+#          -f postgres/postgres-values.yaml -f postgres/postgres-values-prod.yaml
+
+primary:
+  persistence:
+    size: 50Gi
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m

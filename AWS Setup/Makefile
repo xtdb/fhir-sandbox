@@ -31,6 +31,7 @@ CHAOS_NAMESPACE    := chaos-mesh
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
+        pg-dep pg-logs pg-stat pg-teardown pg-con \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
         log-dep log-logs log-stat log-teardown \
@@ -59,6 +60,13 @@ help:
 	@echo "  make iam            - Create and configure IAM role"
 	@echo "  make xtdb           - Install XTDB with Helm"
 	@echo "  make prom           - Install Prometheus"
+	@echo ""
+	@echo "PostgreSQL (single-instance Bitnami chart):"
+	@echo "  make pg-dep         - Deploy single-instance PostgreSQL with persistent storage"
+	@echo "  make pg-logs        - View PostgreSQL logs"
+	@echo "  make pg-stat        - Show PostgreSQL pod status"
+	@echo "  make pg-con         - Port-forward and connect to PostgreSQL via psql"
+	@echo "  make pg-teardown    - Uninstall PostgreSQL (PVC retained)"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -158,6 +166,13 @@ setup:
 	kubectl apply -f kafka/kafka-cluster-$$ENV.yaml -n $(NAMESPACE); \
 	\
 	echo ""; \
+	echo "Step 5.5: Installing PostgreSQL..."; \
+	helm upgrade --install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql \
+		--namespace $(NAMESPACE) \
+		-f postgres/postgres-values.yaml \
+		-f postgres/postgres-values-$$ENV.yaml; \
+	\
+	echo ""; \
 	echo "Step 6: Creating service account..."; \
 	kubectl create serviceaccount $(SERVICE_ACCOUNT) --namespace $(NAMESPACE) 2>/dev/null || echo "Service account already exists"; \
 	\
@@ -219,7 +234,7 @@ setup:
 teardown:
 	@echo ""
 	@echo "WARNING: This will DELETE ALL resources in namespace $(NAMESPACE)!"
-	@echo "         This includes: XTDB, Kafka, Prometheus, and ALL data."
+	@echo "         This includes: XTDB, Kafka, PostgreSQL, Prometheus, and ALL data."
 	@echo "         The S3 bucket $(S3_BUCKET) will also be emptied."
 	@echo ""
 	@read -p "Type 'yes' to confirm deletion: " confirm; \
@@ -339,6 +354,50 @@ prom:
 	@helm install prometheus prometheus-community/prometheus \
 		--namespace $(NAMESPACE) \
 		-f prometheus-config.yaml
+
+# ===========================================
+# PostgreSQL (single-instance Bitnami chart)
+# ===========================================
+
+# Deploy a single-instance PostgreSQL with persistent storage
+pg-dep:
+	@if [ -z "$(CURRENT_ENV)" ]; then \
+		echo "Select environment:"; \
+		echo "  1) dev"; \
+		echo "  2) prod"; \
+		read -p "Enter choice [1/2]: " choice; \
+		if [ "$$choice" = "1" ]; then ENV=dev; else ENV=prod; fi; \
+	else \
+		ENV=$(CURRENT_ENV); \
+		echo "Using current environment: $$ENV"; \
+	fi; \
+	echo "Installing/upgrading PostgreSQL with Helm ($$ENV)..."; \
+	helm upgrade --install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql \
+		--namespace $(NAMESPACE) \
+		-f postgres/postgres-values.yaml \
+		-f postgres/postgres-values-$$ENV.yaml
+
+# View PostgreSQL logs
+pg-logs:
+	@kubectl logs -f -l app.kubernetes.io/name=postgresql -n $(NAMESPACE)
+
+# Show PostgreSQL pod status
+pg-stat:
+	@kubectl get pods -l app.kubernetes.io/name=postgresql -n $(NAMESPACE)
+
+# Uninstall PostgreSQL (PVC is retained — delete it manually to wipe data)
+pg-teardown:
+	@helm uninstall postgresql --namespace $(NAMESPACE) || true
+
+# Connect to PostgreSQL via port-forward (uses local port 5433 to avoid clashing with 'con')
+pg-con:
+	@echo "Connecting to PostgreSQL via port-forward..."
+	@PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
+	kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 & \
+	PF_PID=$$!; \
+	sleep 2 && \
+	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres"; \
+	kill $$PF_PID 2>/dev/null || true
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:

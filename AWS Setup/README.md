@@ -66,6 +66,35 @@ The current environment (`dev` / `prod`) is stored in `.current-env` after a
 | `make xtdb-upgrade`| Helm upgrade an existing `xtdb-aws` release (no install)   |
 | `make xtdb-logs`   | Tail logs for a chosen `xtdb-statefulset` member           |
 
+## PostgreSQL (single-instance Bitnami chart)
+
+A single-instance PostgreSQL (`architecture: standalone`) with a persistent
+`gp2` PVC, deployed from the Bitnami OCI chart. It is installed as part of
+`make setup`, and XTDB depends on it.
+
+Config follows the same base + env-override layout as XTDB:
+
+- [`postgres/postgres-values.yaml`](./postgres/postgres-values.yaml) — common base (standalone, `gp2`, node selector)
+- [`postgres/postgres-values-dev.yaml`](./postgres/postgres-values-dev.yaml) — 8Gi PVC, reduced resources
+- [`postgres/postgres-values-prod.yaml`](./postgres/postgres-values-prod.yaml) — 50Gi PVC, larger resources (still single-instance)
+
+`make pg-dep` picks the env from `.current-env`, otherwise it prompts dev/prod.
+
+Auth uses chart defaults — a random `postgres` superuser password is generated
+into the `postgresql` Secret:
+
+```bash
+kubectl get secret postgresql -n xtdb-deployment -o jsonpath='{.data.postgres-password}' | base64 -d
+```
+
+| Command           | Description                                              |
+|-------------------|----------------------------------------------------------|
+| `make pg-dep`     | Deploy single-instance PostgreSQL (prompts/uses env)     |
+| `make pg-logs`    | View PostgreSQL logs                                     |
+| `make pg-stat`    | Show PostgreSQL pod status                               |
+| `make pg-con`     | Port-forward and connect to PostgreSQL via `psql` (local port 5433) |
+| `make pg-teardown`| Uninstall PostgreSQL (the PVC is retained)              |
+
 ## Legacy batch importer (xtdb-fhir)
 
 | Command            | Description                            |

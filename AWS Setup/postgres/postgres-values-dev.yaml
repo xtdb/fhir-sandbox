@@ -1,0 +1,14 @@
+# Development PostgreSQL - reduced storage and resources for budget instances
+# Usage: helm upgrade --install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql \
+#          -f postgres/postgres-values.yaml -f postgres/postgres-values-dev.yaml
+
+primary:
+  persistence:
+    size: 8Gi
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m

@@ -1,0 +1,22 @@
+# Base configuration for single-instance PostgreSQL (Bitnami chart).
+# Common settings shared by dev and prod; env-specific storage/resources live in
+# postgres-values-dev.yaml / postgres-values-prod.yaml.
+#
+# Usage: helm upgrade --install postgresql oci://registry-1.docker.io/bitnamicharts/postgresql \
+#          --namespace xtdb-deployment \
+#          -f postgres/postgres-values.yaml \
+#          -f postgres/postgres-values-<env>.yaml
+#
+# Auth: chart defaults — a random 'postgres' superuser password is generated and
+# stored in the 'postgresql' Secret. Retrieve it with:
+#   kubectl get secret postgresql -n xtdb-deployment -o jsonpath='{.data.postgres-password}' | base64 -d
+
+# Single instance (no read replicas) in both dev and prod
+architecture: standalone
+
+primary:
+  persistence:
+    enabled: true
+    storageClass: gp2
+  nodeSelector:
+    node_pool: xtdbpool
