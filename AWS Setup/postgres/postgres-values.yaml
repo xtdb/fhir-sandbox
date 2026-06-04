@@ -14,6 +14,11 @@
 # Single instance (no read replicas) in both dev and prod
 architecture: standalone
 
+auth:
+  # Database created on first install, used by XTDB's 'cdc' remote.
+  # Owned by the default 'postgres' superuser (no separate app user).
+  database: cdc
+
 primary:
   persistence:
     enabled: true

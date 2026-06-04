@@ -49,6 +49,15 @@ xtdbConfig:
   # AWS S3 Bucket Name
   s3Bucket: ""
 
+  # PostgreSQL credentials for remote query sources (the in-cluster Bitnami
+  # release). Injected as PGUSER / PGPASSWORD env vars and referenced from
+  # nodeConfig's `remotes` section via !Env. Set to null to disable.
+  postgres:
+    username: postgres
+    # Secret created by the Bitnami postgresql chart, holding the password
+    secretName: postgresql
+    secretKey: postgres-password
+
   # Kafka bootstrap servers
   kafkaBootstrapServers: "kafka-kafka-bootstrap.xtdb-deployment.svc.cluster.local:9092"
   # XTDB log topic on Kafka 
@@ -86,6 +95,14 @@ xtdbConfig:
       objectStore: !S3
         bucket: "xtdb-bucket"
         prefix: xtdb-object-store
+
+    remotes:
+      cdc: !Postgres
+        hostname: postgresql.xtdb-deployment.svc.cluster.local
+        port: 5432
+        database: cdc
+        username: !Env PGUSER
+        password: !Env PGPASSWORD
 
     diskCache:
       path: /var/lib/xtdb/buffers/disk-cache

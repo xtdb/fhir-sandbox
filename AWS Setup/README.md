@@ -87,6 +87,11 @@ into the `postgresql` Secret:
 kubectl get secret postgresql -n xtdb-deployment -o jsonpath='{.data.postgres-password}' | base64 -d
 ```
 
+A `cdc` database is created on first install (`auth.database`). XTDB connects to
+it as a `!Postgres` remote (see `remotes:` in [`helm/values.yaml`](./helm/values.yaml)):
+the `postgresql` Secret password is injected into the XTDB pods as `PGUSER` /
+`PGPASSWORD`, which the node config references via `!Env`.
+
 | Command           | Description                                              |
 |-------------------|----------------------------------------------------------|
 | `make pg-dep`     | Deploy single-instance PostgreSQL (prompts/uses env)     |

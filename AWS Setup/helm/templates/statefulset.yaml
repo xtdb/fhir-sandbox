@@ -69,6 +69,15 @@ spec:
               value: {{ required "xtdbConfig.kafkaLogTopic is required." .Values.xtdbConfig.kafkaLogTopic }}
             - name: AWS_S3_BUCKET
               value: {{ required "xtdbConfig.s3Bucket is required." .Values.xtdbConfig.s3Bucket }}
+            {{- with .Values.xtdbConfig.postgres }}
+            - name: PGUSER
+              value: {{ .username | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: {{ .secretKey }}
+            {{- end }}
             {{- range $key, $value := .Values.xtdbConfig.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
