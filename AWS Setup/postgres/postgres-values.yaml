@@ -14,12 +14,11 @@
 # Single instance (no read replicas) in both dev and prod
 architecture: standalone
 
-auth:
-  # Database created on first install, used by XTDB's 'cdc' remote.
-  # Owned by the default 'postgres' superuser (no separate app user).
-  database: cdc
-
 primary:
+  # Logical replication is required for XTDB's pg_cdc external source.
+  # (max_wal_senders / max_replication_slots default to 10 in the chart.)
+  extendedConfiguration: |
+    wal_level = logical
   persistence:
     enabled: true
     storageClass: gp2

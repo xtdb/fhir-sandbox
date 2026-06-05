@@ -32,6 +32,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
         pg-dep pg-logs pg-stat pg-teardown pg-con \
+        cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-detach \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
         log-dep log-logs log-stat log-teardown \
@@ -67,6 +68,8 @@ help:
 	@echo "  make pg-stat        - Show PostgreSQL pod status"
 	@echo "  make pg-con         - Port-forward and connect to PostgreSQL via psql"
 	@echo "  make pg-teardown    - Uninstall PostgreSQL (PVC retained)"
+	@echo "  make cdc-start      - Set up the cdc database + attach pg_cdc in XTDB (starts CDC)"
+	@echo "  make cdc-stop       - Detach pg_cdc + drop the cdc database (stops CDC)"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -398,6 +401,69 @@ pg-con:
 	sleep 2 && \
 	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres"; \
 	kill $$PF_PID 2>/dev/null || true
+
+# ===========================================
+# PostgreSQL CDC replication (Postgres publication + XTDB ATTACH DATABASE)
+# ===========================================
+# cdc-start sets up the Postgres-side publication (on the 'cdc' database) and
+# attaches the pg_cdc source database in XTDB. cdc-stop reverses both. SQL lives
+# in sql/*.sql. The XTDB attach's Kafka topics and S3 prefix are suffixed with a
+# generated UUID so detach + re-attach starts cleanly (no reused topics / data).
+
+# Create the 'cdc' database (if missing), 'core' schema, placeholder tables, and
+# the 'xtdb' publication — all in one psql session (connects to the default
+# 'postgres' db, then \connect's into cdc). See sql/cdc-setup.sql.
+cdc-setup:
+	@echo "Setting up the cdc database (db, schema, tables, publication)..."
+	@PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
+	kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 >/dev/null 2>&1 & \
+	PF_PID=$$!; \
+	sleep 2; \
+	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres dbname=postgres" -v ON_ERROR_STOP=1 -f sql/cdc-setup.sql; ST=$$?; \
+	kill $$PF_PID 2>/dev/null || true; \
+	exit $$ST
+
+# Drop the whole 'cdc' database for a clean slate (cascades the core schema,
+# tables, and the xtdb publication; drops the replication slot first). See
+# sql/cdc-teardown.sql. Run after the XTDB detach.
+cdc-teardown:
+	@echo "Tearing down the cdc database..."
+	@PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
+	kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 >/dev/null 2>&1 & \
+	PF_PID=$$!; \
+	sleep 2; \
+	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres dbname=postgres" -v ON_ERROR_STOP=1 -f sql/cdc-teardown.sql; ST=$$?; \
+	kill $$PF_PID 2>/dev/null || true; \
+	exit $$ST
+
+# Attach pg_cdc in XTDB (topics/prefix suffixed with a fresh UUID)
+cdc-attach:
+	@UUID=$$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || cat /proc/sys/kernel/random/uuid); \
+	echo "Attaching pg_cdc (suffix: $$UUID)..."; \
+	kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 >/dev/null 2>&1 & \
+	PF_PID=$$!; \
+	sleep 2; \
+	sed "s/__UUID__/$$UUID/g" sql/attach-database.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1; ST=$$?; \
+	kill $$PF_PID 2>/dev/null || true; \
+	exit $$ST
+
+# Detach pg_cdc in XTDB
+cdc-detach:
+	@echo "Detaching pg_cdc..."
+	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 >/dev/null 2>&1 & \
+	PF_PID=$$!; \
+	sleep 2; \
+	psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1 -f sql/detach-database.sql; ST=$$?; \
+	kill $$PF_PID 2>/dev/null || true; \
+	exit $$ST
+
+# Start CDC: set up the cdc database (+ schema/tables/publication), then XTDB attach
+cdc-start: cdc-setup cdc-attach
+	@echo "CDC replication started."
+
+# Stop CDC: XTDB detach, then drop the cdc database for a clean slate
+cdc-stop: cdc-detach cdc-teardown
+	@echo "CDC replication stopped."
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:

@@ -87,8 +87,8 @@ into the `postgresql` Secret:
 kubectl get secret postgresql -n xtdb-deployment -o jsonpath='{.data.postgres-password}' | base64 -d
 ```
 
-A `cdc` database is created on first install (`auth.database`). XTDB connects to
-it as a `!Postgres` remote (see `remotes:` in [`helm/values.yaml`](./helm/values.yaml)):
+The `cdc` database is created by `make cdc-start` (see below), not by the chart.
+XTDB connects to it as a `!Postgres` remote (see `remotes:` in [`helm/values.yaml`](./helm/values.yaml)):
 the `postgresql` Secret password is injected into the XTDB pods as `PGUSER` /
 `PGPASSWORD`, which the node config references via `!Env`.
 
@@ -99,6 +99,32 @@ the `postgresql` Secret password is injected into the XTDB pods as `PGUSER` /
 | `make pg-stat`    | Show PostgreSQL pod status                               |
 | `make pg-con`     | Port-forward and connect to PostgreSQL via `psql` (local port 5433) |
 | `make pg-teardown`| Uninstall PostgreSQL (the PVC is retained)              |
+| `make cdc-start`  | Create the `cdc` database (schema/tables/publication) + attach `pg_cdc` in XTDB (starts CDC) |
+| `make cdc-stop`   | Detach `pg_cdc` + drop the `cdc` database (stops CDC) |
+
+### CDC replication (`cdc-start` / `cdc-stop`)
+
+CDC has two sides, both driven from `.sql` files under [`sql/`](./sql/):
+
+- **Postgres** (`sql/cdc-setup.sql`, run against the default `postgres` db) —
+  creates the `cdc` database if missing, then `\connect`s into it to create the
+  `core` schema, placeholder `foo`/`bar` tables (real schema TBD), and the `xtdb`
+  publication (`FOR TABLES IN SCHEMA core`). Idempotent — safe to re-run.
+- **XTDB** (`sql/attach-database.sql`) — `ATTACH DATABASE pg_cdc`, with the `cdc`
+  remote as the `!Postgres` external source. The Kafka topics
+  (`xtdb-pgcdc-sourceLog-*` / `xtdb-pgcdc-replicaLog-*`) and S3 prefix (`pg-cdc-*`)
+  are suffixed with a freshly generated UUID (printed on attach), so detach +
+  re-attach starts clean without reusing old topics or object-store data.
+
+`make cdc-start` runs the Postgres setup then the attach; `make cdc-stop` runs
+the detach then drops the whole `cdc` database (`sql/cdc-teardown.sql` — drops the
+replication slot first, then the database) for a clean slate. The granular
+targets — `cdc-setup`, `cdc-attach`, `cdc-detach`, `cdc-teardown` — are also
+available individually.
+
+> Note: the publication name (`xtdb`) must match `publicationName` in
+> `sql/attach-database.sql`. The Postgres tables need a replica identity for
+> updates/deletes — the placeholder tables use a primary key, which covers it.
 
 ## Legacy batch importer (xtdb-fhir)
 
