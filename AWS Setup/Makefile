@@ -413,52 +413,54 @@ pg-con:
 # in sql/*.sql. The XTDB attach's Kafka topics and S3 prefix are suffixed with a
 # generated UUID so detach + re-attach starts cleanly (no reused topics / data).
 
+# $(call pg-run,<command>) — port-forward to in-cluster PostgreSQL on 5433, expose
+# the generated superuser password as PGPASSWORD, run <command>, then tear down
+# the port-forward and propagate the command's exit status.
+define pg-run
+PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
+kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 >/dev/null 2>&1 & \
+PF_PID=$$!; \
+sleep 2; \
+PGPASSWORD="$$PGPASS" $(1); ST=$$?; \
+kill $$PF_PID 2>/dev/null || true; \
+exit $$ST
+endef
+
+# $(call xtdb-run,<command>) — port-forward to XTDB on 5432, run <command>, then
+# tear down the port-forward and propagate the command's exit status.
+define xtdb-run
+kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 >/dev/null 2>&1 & \
+PF_PID=$$!; \
+sleep 2; \
+$(1); ST=$$?; \
+kill $$PF_PID 2>/dev/null || true; \
+exit $$ST
+endef
+
 # Create the 'cdc' database (if missing), 'core' schema, placeholder tables, and
 # the 'xtdb' publication — all in one psql session (connects to the default
 # 'postgres' db, then \connect's into cdc). See sql/cdc-setup.sql.
 cdc-setup:
 	@echo "Setting up the cdc database (db, schema, tables, publication)..."
-	@PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
-	kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 >/dev/null 2>&1 & \
-	PF_PID=$$!; \
-	sleep 2; \
-	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres dbname=postgres" -v ON_ERROR_STOP=1 -f sql/cdc-setup.sql; ST=$$?; \
-	kill $$PF_PID 2>/dev/null || true; \
-	exit $$ST
+	@$(call pg-run,psql "host=localhost port=5433 user=postgres dbname=postgres" -v ON_ERROR_STOP=1 -f sql/cdc-setup.sql)
 
 # Drop the whole 'cdc' database for a clean slate (cascades the core schema,
 # tables, and the xtdb publication; drops the replication slot first). See
 # sql/cdc-teardown.sql. Run after the XTDB detach.
 cdc-teardown:
 	@echo "Tearing down the cdc database..."
-	@PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
-	kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 >/dev/null 2>&1 & \
-	PF_PID=$$!; \
-	sleep 2; \
-	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres dbname=postgres" -v ON_ERROR_STOP=1 -f sql/cdc-teardown.sql; ST=$$?; \
-	kill $$PF_PID 2>/dev/null || true; \
-	exit $$ST
+	@$(call pg-run,psql "host=localhost port=5433 user=postgres dbname=postgres" -v ON_ERROR_STOP=1 -f sql/cdc-teardown.sql)
 
 # Attach pg_cdc in XTDB (topics/prefix suffixed with a fresh UUID)
 cdc-attach:
 	@UUID=$$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || cat /proc/sys/kernel/random/uuid); \
 	echo "Attaching pg_cdc (suffix: $$UUID)..."; \
-	kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 >/dev/null 2>&1 & \
-	PF_PID=$$!; \
-	sleep 2; \
-	sed "s/__UUID__/$$UUID/g" sql/attach-database.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1; ST=$$?; \
-	kill $$PF_PID 2>/dev/null || true; \
-	exit $$ST
+	$(call xtdb-run,sed "s/__UUID__/$$UUID/g" sql/attach-database.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1)
 
 # Detach pg_cdc in XTDB
 cdc-detach:
 	@echo "Detaching pg_cdc..."
-	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 >/dev/null 2>&1 & \
-	PF_PID=$$!; \
-	sleep 2; \
-	psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1 -f sql/detach-database.sql; ST=$$?; \
-	kill $$PF_PID 2>/dev/null || true; \
-	exit $$ST
+	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1 -f sql/detach-database.sql)
 
 # Start CDC: set up the cdc database (+ schema/tables/publication), then XTDB attach
 cdc-start: cdc-setup cdc-attach
@@ -471,23 +473,12 @@ cdc-stop: cdc-detach cdc-teardown
 # Smoke test: insert a marker row into Postgres core.foo (replicated via CDC)
 cdc-test-insert:
 	@echo "Inserting a test row into core.foo on the cdc database..."
-	@PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
-	kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 >/dev/null 2>&1 & \
-	PF_PID=$$!; \
-	sleep 2; \
-	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres dbname=cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-insert.sql; ST=$$?; \
-	kill $$PF_PID 2>/dev/null || true; \
-	exit $$ST
+	@$(call pg-run,psql "host=localhost port=5433 user=postgres dbname=cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-insert.sql)
 
 # Smoke test: query XTDB's attached pg_cdc to confirm the row replicated
 cdc-test-query:
 	@echo "Querying core.foo on the XTDB pg_cdc database..."
-	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 >/dev/null 2>&1 & \
-	PF_PID=$$!; \
-	sleep 2; \
-	psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql; ST=$$?; \
-	kill $$PF_PID 2>/dev/null || true; \
-	exit $$ST
+	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:
