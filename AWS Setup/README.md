@@ -101,6 +101,8 @@ the `postgresql` Secret password is injected into the XTDB pods as `PGUSER` /
 | `make pg-teardown`| Uninstall PostgreSQL (the PVC is retained)              |
 | `make cdc-start`  | Create the `cdc` database (schema/tables/publication) + attach `pg_cdc` in XTDB (starts CDC) |
 | `make cdc-stop`   | Detach `pg_cdc` + drop the `cdc` database (stops CDC) |
+| `make cdc-test-insert` | Insert a marker row into Postgres `core.foo` (CDC smoke test) |
+| `make cdc-test-query`  | Query XTDB `pg_cdc` `core.foo` to confirm the row replicated |
 
 ### CDC replication (`cdc-start` / `cdc-stop`)
 
@@ -108,8 +110,9 @@ CDC has two sides, both driven from `.sql` files under [`sql/`](./sql/):
 
 - **Postgres** (`sql/cdc-setup.sql`, run against the default `postgres` db) —
   creates the `cdc` database if missing, then `\connect`s into it to create the
-  `core` schema, placeholder `foo`/`bar` tables (real schema TBD), and the `xtdb`
-  publication (`FOR TABLES IN SCHEMA core`). Idempotent — safe to re-run.
+  `core` schema, a placeholder `foo` table (PK named `_id`, which XTDB requires on
+  every replicated row; real schema TBD), and the `xtdb` publication
+  (`FOR TABLES IN SCHEMA core`). Idempotent — safe to re-run.
 - **XTDB** (`sql/attach-database.sql`) — `ATTACH DATABASE pg_cdc`, with the `cdc`
   remote as the `!Postgres` external source. The Kafka topics
   (`xtdb-pgcdc-sourceLog-*` / `xtdb-pgcdc-replicaLog-*`) and S3 prefix (`pg-cdc-*`)
@@ -121,6 +124,11 @@ the detach then drops the whole `cdc` database (`sql/cdc-teardown.sql` — drops
 replication slot first, then the database) for a clean slate. The granular
 targets — `cdc-setup`, `cdc-attach`, `cdc-detach`, `cdc-teardown` — are also
 available individually.
+
+To smoke-test the round-trip once CDC is running, `make cdc-test-insert` writes a
+timestamped marker row into Postgres `core.foo`, and `make cdc-test-query` reads
+the latest `core.foo` rows back from XTDB's attached `pg_cdc` database — the
+marker should appear there once replicated.
 
 > Note: the publication name (`xtdb`) must match `publicationName` in
 > `sql/attach-database.sql`. The Postgres tables need a replica identity for

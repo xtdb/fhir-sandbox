@@ -33,6 +33,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
         pg-dep pg-logs pg-stat pg-teardown pg-con \
         cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-detach \
+        cdc-test-insert cdc-test-query \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
         log-dep log-logs log-stat log-teardown \
@@ -70,6 +71,8 @@ help:
 	@echo "  make pg-teardown    - Uninstall PostgreSQL (PVC retained)"
 	@echo "  make cdc-start      - Set up the cdc database + attach pg_cdc in XTDB (starts CDC)"
 	@echo "  make cdc-stop       - Detach pg_cdc + drop the cdc database (stops CDC)"
+	@echo "  make cdc-test-insert - Insert a test row into Postgres core.foo (CDC smoke test)"
+	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.foo to confirm it replicated"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -464,6 +467,27 @@ cdc-start: cdc-setup cdc-attach
 # Stop CDC: XTDB detach, then drop the cdc database for a clean slate
 cdc-stop: cdc-detach cdc-teardown
 	@echo "CDC replication stopped."
+
+# Smoke test: insert a marker row into Postgres core.foo (replicated via CDC)
+cdc-test-insert:
+	@echo "Inserting a test row into core.foo on the cdc database..."
+	@PGPASS=$$(kubectl get secret postgresql --namespace $(NAMESPACE) -o jsonpath='{.data.postgres-password}' | base64 -d); \
+	kubectl port-forward svc/postgresql --namespace $(NAMESPACE) 5433:5432 >/dev/null 2>&1 & \
+	PF_PID=$$!; \
+	sleep 2; \
+	PGPASSWORD="$$PGPASS" psql "host=localhost port=5433 user=postgres dbname=cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-insert.sql; ST=$$?; \
+	kill $$PF_PID 2>/dev/null || true; \
+	exit $$ST
+
+# Smoke test: query XTDB's attached pg_cdc to confirm the row replicated
+cdc-test-query:
+	@echo "Querying core.foo on the XTDB pg_cdc database..."
+	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 >/dev/null 2>&1 & \
+	PF_PID=$$!; \
+	sleep 2; \
+	psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql; ST=$$?; \
+	kill $$PF_PID 2>/dev/null || true; \
+	exit $$ST
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:
