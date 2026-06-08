@@ -17,6 +17,28 @@ Run `make help` at any time to list the commands.
 The current environment (`dev` / `prod`) is stored in `.current-env` after a
 `make setup` run; targets that need it read from there, otherwise they prompt.
 
+### If using profile-based AWS auth
+
+The Makefile uses whatever AWS credentials are active — it doesn't pin a profile.
+If you authenticate with a named profile (e.g. `dan`), export it so every
+`aws …` call (including the `$(shell aws ecr …)` repo lookups, which otherwise
+resolve to `NOT_SET`) and `kubectl` (its exec auth runs `aws eks get-token`) pick
+it up:
+
+```sh
+export AWS_PROFILE=dan
+```
+
+Or pass it per-invocation — make forwards command-line vars into recipes and
+`$(shell …)`: `make gen-push AWS_PROFILE=dan`.
+
+If `kubectl` still can't authenticate, regenerate the kubeconfig with the profile
+baked into its exec block:
+
+```sh
+aws eks update-kubeconfig --name xtdb-cluster --region eu-west-1 --profile dan
+```
+
 ## Common configuration
 
 | Variable          | Default              | Description                                  |
@@ -101,8 +123,8 @@ the `postgresql` Secret password is injected into the XTDB pods as `PGUSER` /
 | `make pg-teardown`| Uninstall PostgreSQL (the PVC is retained)              |
 | `make cdc-start`  | Create the `cdc` database (schema/tables/publication) + attach `pg_cdc` in XTDB (starts CDC) |
 | `make cdc-stop`   | Detach `pg_cdc` + drop the `cdc` database (stops CDC) |
-| `make cdc-test-insert` | Insert a marker row into Postgres `core.foo` (CDC smoke test) |
-| `make cdc-test-query`  | Query XTDB `pg_cdc` `core.foo` to confirm the row replicated |
+| `make cdc-test-insert` | Insert a marker Patient row into Postgres `core.patient` (CDC smoke test) |
+| `make cdc-test-query`  | Query XTDB `pg_cdc` `core.patient` to confirm the row replicated |
 
 ### CDC replication (`cdc-start` / `cdc-stop`)
 
@@ -110,9 +132,15 @@ CDC has two sides, both driven from `.sql` files under [`sql/`](./sql/):
 
 - **Postgres** (`sql/cdc-setup.sql`, run against the default `postgres` db) —
   creates the `cdc` database if missing, then `\connect`s into it to create the
-  `core` schema, a placeholder `foo` table (PK named `_id`, which XTDB requires on
-  every replicated row; real schema TBD), and the `xtdb` publication
-  (`FOR TABLES IN SCHEMA core`). Idempotent — safe to re-run.
+  `core` schema, the resource-type tables the generator writes to (`core.patient`,
+  `core.observation`, … — flat schema, PK named `_id`, which XTDB requires on every
+  replicated row), and the `xtdb` publication (`FOR TABLES IN SCHEMA core`).
+  Idempotent — safe to re-run. The tables are pre-created here, *before* the attach,
+  on purpose: XTDB's initial snapshot only captures tables in the publication at
+  attach time, and a table that joins later has its pre-existing rows silently
+  dropped ([xtdb/xtdb#5497](https://github.com/xtdb/xtdb/issues/5497)). Pre-creating
+  them puts them in the snapshot; the generator's `CREATE TABLE IF NOT EXISTS` then
+  no-ops and it only ever *inserts*.
 - **XTDB** (`sql/attach-database.sql`) — `ATTACH DATABASE pg_cdc`, with the `cdc`
   remote as the `!Postgres` external source. The Kafka topics
   (`xtdb-pgcdc-sourceLog-*` / `xtdb-pgcdc-replicaLog-*`) and S3 prefix (`pg-cdc-*`)
@@ -126,13 +154,38 @@ targets — `cdc-setup`, `cdc-attach`, `cdc-detach`, `cdc-teardown` — are also
 available individually.
 
 To smoke-test the round-trip once CDC is running, `make cdc-test-insert` writes a
-timestamped marker row into Postgres `core.foo`, and `make cdc-test-query` reads
-the latest `core.foo` rows back from XTDB's attached `pg_cdc` database — the
-marker should appear there once replicated.
+marker Patient row into Postgres `core.patient` (its `status` carries a
+timestamp), and `make cdc-test-query` reads the latest `core.patient` rows back
+from XTDB's attached `pg_cdc` database — the marker should appear there once
+replicated.
+
+**Driving CDC with real FHIR data.** With CDC running, deploy the Postgres-target
+generator (`make pggen-setup` — see [Generator](#generator-synthea-data-generator)).
+It synthesises FHIR resources and upserts them into `cdc`, one flat table per
+resource type in `core` (`_id`, `resource_type`, `status`, `patient_id`,
+`encounter_id`, `code`, `last_updated`, `created_at` — a handful of promoted
+top-level fields, no jsonb), which CDC replicates into XTDB's `pg_cdc` database.
+Compare counts between the source and target to watch replication keep up:
+
+```sql
+-- Postgres (source), via `make pg-con` then `\c cdc`:
+SELECT count(*) FROM core.patient;
+-- XTDB (target), against the attached pg_cdc database
+-- (as `make cdc-test-query` does — psql … dbname=pg_cdc):
+SELECT count(*) FROM core.patient;
+```
+
+> Note: the curated tables in `cdc-setup.sql` cover the resource types Synthea
+> emits, so a normal run is fully snapshot-safe. If the generator ever writes a
+> resource type *not* in that list, its table is created after attach and is
+> subject to [#5497](https://github.com/xtdb/xtdb/issues/5497) (early rows may be
+> dropped). Add it to `cdc-setup.sql` and `make cdc-stop && make cdc-start` to
+> re-snapshot, or to recover an existing dataset re-attach captures everything
+> currently present.
 
 > Note: the publication name (`xtdb`) must match `publicationName` in
 > `sql/attach-database.sql`. The Postgres tables need a replica identity for
-> updates/deletes — the placeholder tables use a primary key, which covers it.
+> updates/deletes — the generator tables use a primary key (`_id`), which covers it.
 
 ## Legacy batch importer (xtdb-fhir)
 
@@ -144,15 +197,32 @@ marker should appear there once replicated.
 
 ## Generator (Synthea data generator)
 
-| Command            | Description                                       |
-|--------------------|---------------------------------------------------|
-| `make gen-build`   | Build the `xtdb-fhir-generator` Docker image      |
-| `make gen-push`    | Build and push the generator image to ECR         |
-| `make gen-dep`     | Deploy the generator as a long-running pod         |
-| `make gen-logs`    | View generator logs                               |
-| `make gen-stat`    | Show generator pod status                         |
-| `make gen-setup`   | Full generator deployment (build + push + deploy) |
-| `make gen-teardown`| Remove the generator deployment                   |
+The generator continuously synthesises FHIR data with Synthea and writes it out.
+A single image runs against either of two **write targets**, selected per
+deployment by the `patient-generator.target` property in its ConfigMap:
+
+- **`xtdb`** (`generator-deployment.yaml`) — writes straight to XTDB via
+  `INSERT … RECORDS`.
+- **`postgres`** (`pg-generator-deployment.yaml`) — writes into the `cdc`
+  Postgres database, which CDC replicates into XTDB. This is how we drive the
+  CDC path under load (see [CDC replication](#cdc-replication-cdc-start--cdc-stop)).
+
+Both share `gen-build` / `gen-push` (one image); only the deployment differs.
+
+| Command             | Description                                              |
+|---------------------|----------------------------------------------------------|
+| `make gen-build`    | Build the `xtdb-fhir-generator` Docker image             |
+| `make gen-push`     | Build and push the generator image to ECR                |
+| `make gen-dep`      | Deploy the XTDB-target generator                         |
+| `make gen-logs`     | View XTDB-target generator logs                          |
+| `make gen-stat`     | Show XTDB-target generator pod status                    |
+| `make gen-setup`    | Full XTDB-target deployment (build + push + deploy)      |
+| `make gen-teardown` | Remove the XTDB-target generator deployment             |
+| `make pggen-dep`    | Deploy the Postgres-target generator (writes to `cdc` for CDC) |
+| `make pggen-logs`   | View Postgres-target generator logs                      |
+| `make pggen-stat`   | Show Postgres-target generator pod status                |
+| `make pggen-setup`  | Full Postgres-target deployment (shared build + push + deploy) |
+| `make pggen-teardown` | Remove the Postgres-target generator deployment        |
 
 ## Guardrails (monitoring daemon)
 
