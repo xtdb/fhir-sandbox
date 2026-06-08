@@ -71,8 +71,8 @@ help:
 	@echo "  make pg-teardown    - Uninstall PostgreSQL (PVC retained)"
 	@echo "  make cdc-start      - Set up the cdc database + attach pg_cdc in XTDB (starts CDC)"
 	@echo "  make cdc-stop       - Detach pg_cdc + drop the cdc database (stops CDC)"
-	@echo "  make cdc-test-insert - Insert a test row into Postgres core.foo (CDC smoke test)"
-	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.foo to confirm it replicated"
+	@echo "  make cdc-test-insert - Insert a test Patient row into Postgres core.patient (CDC smoke test)"
+	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.patient to confirm it replicated"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -470,14 +470,14 @@ cdc-start: cdc-setup cdc-attach
 cdc-stop: cdc-detach cdc-teardown
 	@echo "CDC replication stopped."
 
-# Smoke test: insert a marker row into Postgres core.foo (replicated via CDC)
+# Smoke test: insert a marker Patient row into Postgres core.patient (replicated via CDC)
 cdc-test-insert:
-	@echo "Inserting a test row into core.foo on the cdc database..."
+	@echo "Inserting a test Patient row into core.patient on the cdc database..."
 	@$(call pg-run,psql "host=localhost port=5433 user=postgres dbname=cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-insert.sql)
 
 # Smoke test: query XTDB's attached pg_cdc to confirm the row replicated
 cdc-test-query:
-	@echo "Querying core.foo on the XTDB pg_cdc database..."
+	@echo "Querying core.patient on the XTDB pg_cdc database..."
 	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
