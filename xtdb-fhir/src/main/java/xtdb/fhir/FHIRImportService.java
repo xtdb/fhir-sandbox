@@ -5,17 +5,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Stream;
 
-import ca.uhn.fhir.model.api.TemporalPrecisionEnum;
 import com.fasterxml.jackson.databind.node.*;
-import org.hl7.fhir.r4.model.DateTimeType;
-import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +26,7 @@ public class FHIRImportService {
   private static final Logger logger = LoggerFactory.getLogger(FHIRImportService.class);
 
   private final DataSource dataSource;
+  private final ResourceWriter writer;
 
   // Statistics for logging
   private int filesProcessed = 0;
@@ -39,8 +36,9 @@ public class FHIRImportService {
   private int otherResourcesStored = 0;
   private int errors = 0;
 
-  public FHIRImportService(DataSource dataSource) {
+  public FHIRImportService(DataSource dataSource, ResourceWriter writer) {
     this.dataSource = dataSource;
+    this.writer = writer;
   }
 
   // =========================================================================
@@ -125,10 +123,7 @@ public class FHIRImportService {
     var resourcesByType = extractResourcesByType(bundle);
 
     for (var mapEntry : resourcesByType.entrySet()) {
-      var resourceType = mapEntry.getKey();
-      var resources = mapEntry.getValue();
-      insertBatch(conn, String.format("INSERT INTO %s RECORDS ?", resourceType), resources);
-      logger.debug("inserted {} resources of type {}", resources.size(), resourceType);
+      writer.writeBatch(conn, mapEntry.getKey(), mapEntry.getValue());
     }
   }
 
@@ -141,11 +136,6 @@ public class FHIRImportService {
 
       setReferenceAsId(resource, "subject");
       setReferenceAsId(resource, "patient");
-
-      JsonUtil.convertValues(resource, v -> {
-        var d = toJsonLdDateOrNull(v);
-        return d == null ? v : d;
-      });
 
       JsonUtil.convertKeysToSnakeCase(resource);
       resource.set("_id", resource.get("id")); // must be done after snake_case is applied to keys
@@ -189,68 +179,10 @@ public class FHIRImportService {
     return resourcesByType;
   }
 
-  private static ObjectNode toJsonLdDateOrNull(ValueNode v) {
-    if (v.isTextual()) {
-      try {
-        var asFhirDate = new DateTimeType(v.textValue());
-        if (asFhirDate.getPrecision() == TemporalPrecisionEnum.MONTH
-            || asFhirDate.getPrecision() == TemporalPrecisionEnum.DAY) {
-          var dateJsonLd = JsonNodeFactory.instance.objectNode();
-          dateJsonLd.set("@type", new TextNode("xt:date"));
-          dateJsonLd.set("@value", new TextNode(v.textValue()));
-          return dateJsonLd;
-        } else if (asFhirDate.getPrecision().ordinal() >= TemporalPrecisionEnum.MINUTE.ordinal()){
-          var dateJsonLd = JsonNodeFactory.instance.objectNode();
-          dateJsonLd.set("@type", new TextNode("xt:timestamptz"));
-          dateJsonLd.set("@value", new TextNode(v.textValue()));
-          return dateJsonLd;
-        }
-      } catch (ca.uhn.fhir.parser.DataFormatException ignored) {}
-    }
-    return null;
-  }
-
   private void setReferenceAsId(ObjectNode resource, String topProperty) {
     var subjectRef = JsonUtil.getText(resource, topProperty, "reference");
     if (subjectRef != null) {
       resource.set(topProperty + "_id", new TextNode(extractIdFromReference(subjectRef)));
-    }
-  }
-
-  // Max records per batch to stay under Kafka's 1MB message size limit.
-  // Some records (like imaging_study) can be very large (~50KB+), so use small batches.
-  private static final int MAX_BATCH_SIZE = 10;
-
-  /**
-   * Insert a batch of records using XTDB RECORDS syntax.
-   * Uses PGobject with "json" type for efficient JSON transfer.
-   * Splits into smaller chunks to avoid exceeding Kafka's max.request.size (1MB).
-   *
-   * @param conn The database connection
-   * @param sql The SQL statement for insertion
-   * @param records The list of records to insert
-   * @throws SQLException If there is a database error
-   */
-  private void insertBatch(Connection conn, String sql, List<JsonNode> records)
-      throws SQLException {
-    if (records.isEmpty()) return;
-
-    // Process in chunks to avoid exceeding Kafka's message size limit
-    for (int i = 0; i < records.size(); i += MAX_BATCH_SIZE) {
-      int end = Math.min(i + MAX_BATCH_SIZE, records.size());
-      List<JsonNode> chunk = records.subList(i, end);
-
-      try (PreparedStatement ps = conn.prepareStatement(sql)) {
-        for (var record : chunk) {
-          PGobject jsonObject = new PGobject();
-          jsonObject.setType("json");
-          jsonObject.setValue(record.toString());
-
-          ps.setObject(1, jsonObject);
-          ps.addBatch();
-        }
-        ps.executeBatch();
-      }
     }
   }
 
@@ -471,7 +403,7 @@ public class FHIRImportService {
     return null;
   }
 
-  String extractIdFromReference(String reference) {
+  static String extractIdFromReference(String reference) {
     if (reference.startsWith("urn:uuid:")) {
       return reference.substring("urn:uuid:".length());
     }

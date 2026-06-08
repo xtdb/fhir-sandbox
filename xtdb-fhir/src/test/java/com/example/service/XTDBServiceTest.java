@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import xtdb.fhir.FHIRImportService;
+import xtdb.fhir.XtdbRecordsWriter;
 
 @Disabled
 // Integration tests for FHIRImportService with a real XTDB database running.
@@ -41,7 +42,7 @@ public class XTDBServiceTest {
       try (Connection conn = dataSource.getConnection()) {
         xtdbAvailable = conn.isValid(5);
       }
-      xtdbService = new FHIRImportService(dataSource);
+      xtdbService = new FHIRImportService(dataSource, new XtdbRecordsWriter());
     } catch (Exception e) {
       xtdbAvailable = false;
     }

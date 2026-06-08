@@ -15,7 +15,7 @@ public class ManualTests {
 
   @Test
   void testImport(DataSource dataSource) throws Exception {
-    var importService = new FHIRImportService(dataSource);
+    var importService = new FHIRImportService(dataSource, new XtdbRecordsWriter());
     File file = new File(ClassLoader.getSystemResource("fhir_sample.json").toURI());
     var jsonNode = JsonUtil.parseFile(file);
     try (var conn = dataSource.getConnection()){
