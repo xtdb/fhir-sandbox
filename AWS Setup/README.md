@@ -218,11 +218,30 @@ Both share `gen-build` / `gen-push` (one image); only the deployment differs.
 | `make gen-stat`     | Show XTDB-target generator pod status                    |
 | `make gen-setup`    | Full XTDB-target deployment (build + push + deploy)      |
 | `make gen-teardown` | Remove the XTDB-target generator deployment             |
+| `make gen-tune`     | Retune XTDB-target generator load (prompts; rolls the pod) |
 | `make pggen-dep`    | Deploy the Postgres-target generator (writes to `cdc` for CDC) |
 | `make pggen-logs`   | View Postgres-target generator logs                      |
 | `make pggen-stat`   | Show Postgres-target generator pod status                |
 | `make pggen-setup`  | Full Postgres-target deployment (shared build + push + deploy) |
 | `make pggen-teardown` | Remove the Postgres-target generator deployment        |
+| `make pggen-tune`   | Retune Postgres-target generator load (prompts; rolls the pod) |
+
+### Tuning generator load
+
+Each generator tick synthesises `population` patients, then waits `interval-seconds`
+before the next — so throughput ≈ `population / interval`. Both are read at startup,
+so `make gen-tune` / `make pggen-tune` prompt for a population count and an interval
+(a duration like `30s`, `5m`, `1h`, or bare seconds), set them as env overrides
+(`PATIENT_GENERATOR_POPULATION` / `PATIENT_GENERATOR_INTERVAL_SECONDS`, which Spring's
+relaxed binding maps onto the properties), and roll the pod to apply them. The new
+pod logs the effective values on startup:
+
+```
+xtdb.fhir.PatientGenerator : PatientGenerator config: population=50, interval=2s
+```
+
+Cross-check what was applied with
+`kubectl set env deployment/xtdb-fhir-generator-pg -n $(NAMESPACE) --list | grep PATIENT_GENERATOR`.
 
 ## Guardrails (monitoring daemon)
 

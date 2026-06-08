@@ -64,10 +64,12 @@ public class PatientGenerator implements AutoCloseable {
 
   public PatientGenerator(HikariDataSource dataSource,
                           ResourceWriter writer,
-                          @Value("${patient-generator.population:2}") int population) {
+                          @Value("${patient-generator.population:2}") int population,
+                          @Value("${patient-generator.interval-seconds:10}") int intervalSeconds) {
     this.dataSource = dataSource;
     this.importService = new FHIRImportService(dataSource, writer);
     this.population = population;
+    log.info("PatientGenerator config: population={}, interval={}s", population, intervalSeconds);
 
     // We better leave one connection idle for DataSource health checks to always succeed
     if (!(dataSource.getMaximumPoolSize() >= 2)) throw new IllegalStateException("pool size must be >= 2");

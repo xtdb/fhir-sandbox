@@ -35,8 +35,8 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
         cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-detach \
         cdc-test-insert cdc-test-query \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
-        gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
-        pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown \
+        gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown gen-tune cloud-logs \
+        pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown pggen-tune \
         log-dep log-logs log-stat log-teardown \
         chaos-install chaos-teardown chaos-apply chaos-delete chaos-status \
         scale-down scale-up
@@ -95,11 +95,13 @@ help:
 	@echo "  make gen-stat       - Show generator pod status"
 	@echo "  make gen-setup      - Full generator deployment (build + push + deploy)"
 	@echo "  make gen-teardown   - Remove generator deployment"
+	@echo "  make gen-tune       - Retune generator load (prompts population + interval; rolls pod)"
 	@echo "  make pggen-dep      - Deploy Postgres-target generator (writes to cdc db for CDC)"
 	@echo "  make pggen-logs     - View Postgres-target generator logs"
 	@echo "  make pggen-stat     - Show Postgres-target generator pod status"
 	@echo "  make pggen-setup    - Full Postgres-target deployment (shared build + push + deploy)"
 	@echo "  make pggen-teardown - Remove Postgres-target generator deployment"
+	@echo "  make pggen-tune     - Retune Postgres-target generator load (prompts; rolls pod)"
 	@echo ""
 	@echo "Fluent Bit log forwarding (CloudWatch Logs):"
 	@echo "  make log-dep        - Deploy fluent-bit DaemonSet to amazon-cloudwatch ns"
@@ -610,6 +612,22 @@ gen-setup: gen-push gen-dep
 gen-teardown:
 	@kubectl delete -f generator-deployment.yaml -n $(NAMESPACE) || true
 
+# Retune the XTDB-target generator load (prompts for population + interval).
+# Both are read at startup, so this sets env overrides and rolls the pod.
+# Interval accepts a duration (30s, 5m, 1h) or a bare number of seconds.
+gen-tune:
+	@read -p "Patient population per tick: " pop; \
+	read -p "Interval between ticks (e.g. 30s, 5m, 1h, or seconds): " iv; \
+	case "$$iv" in \
+	  *h) secs=$$(( $${iv%h} * 3600 ));; \
+	  *m) secs=$$(( $${iv%m} * 60 ));; \
+	  *s) secs=$${iv%s} ;; \
+	  *)  secs=$$iv ;; \
+	esac; \
+	echo "Tuning xtdb-fhir-generator: population=$$pop interval=$${secs}s (rolling)..."; \
+	kubectl set env deployment/xtdb-fhir-generator -n $(NAMESPACE) \
+	  PATIENT_GENERATOR_POPULATION=$$pop PATIENT_GENERATOR_INTERVAL_SECONDS=$$secs
+
 # ---- Postgres-target generator (second instance, same image, target=postgres) ----
 # Writes FHIR data into the Postgres 'cdc' db so it replicates into XTDB via CDC.
 # Reuses the shared gen-build/gen-push (one image); only the deployment differs.
@@ -637,6 +655,22 @@ pggen-setup: gen-push pggen-dep
 # Uninstall the Postgres-target generator
 pggen-teardown:
 	@kubectl delete -f pg-generator-deployment.yaml -n $(NAMESPACE) || true
+
+# Retune the Postgres-target generator load (prompts for population + interval).
+# Both are read at startup, so this sets env overrides and rolls the pod.
+# Interval accepts a duration (30s, 5m, 1h) or a bare number of seconds.
+pggen-tune:
+	@read -p "Patient population per tick: " pop; \
+	read -p "Interval between ticks (e.g. 30s, 5m, 1h, or seconds): " iv; \
+	case "$$iv" in \
+	  *h) secs=$$(( $${iv%h} * 3600 ));; \
+	  *m) secs=$$(( $${iv%m} * 60 ));; \
+	  *s) secs=$${iv%s} ;; \
+	  *)  secs=$$iv ;; \
+	esac; \
+	echo "Tuning xtdb-fhir-generator-pg: population=$$pop interval=$${secs}s (rolling)..."; \
+	kubectl set env deployment/xtdb-fhir-generator-pg -n $(NAMESPACE) \
+	  PATIENT_GENERATOR_POPULATION=$$pop PATIENT_GENERATOR_INTERVAL_SECONDS=$$secs
 
 # ===========================================
 # Guardrails Deploy (monitoring daemon)
