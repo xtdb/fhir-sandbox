@@ -36,6 +36,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
         cdc-test-insert cdc-test-query \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown cloud-logs \
+        pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown \
         log-dep log-logs log-stat log-teardown \
         chaos-install chaos-teardown chaos-apply chaos-delete chaos-status \
         scale-down scale-up
@@ -71,8 +72,8 @@ help:
 	@echo "  make pg-teardown    - Uninstall PostgreSQL (PVC retained)"
 	@echo "  make cdc-start      - Set up the cdc database + attach pg_cdc in XTDB (starts CDC)"
 	@echo "  make cdc-stop       - Detach pg_cdc + drop the cdc database (stops CDC)"
-	@echo "  make cdc-test-insert - Insert a test row into Postgres core.foo (CDC smoke test)"
-	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.foo to confirm it replicated"
+	@echo "  make cdc-test-insert - Insert a test Patient row into Postgres core.patient (CDC smoke test)"
+	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.patient to confirm it replicated"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -94,6 +95,11 @@ help:
 	@echo "  make gen-stat       - Show generator pod status"
 	@echo "  make gen-setup      - Full generator deployment (build + push + deploy)"
 	@echo "  make gen-teardown   - Remove generator deployment"
+	@echo "  make pggen-dep      - Deploy Postgres-target generator (writes to cdc db for CDC)"
+	@echo "  make pggen-logs     - View Postgres-target generator logs"
+	@echo "  make pggen-stat     - Show Postgres-target generator pod status"
+	@echo "  make pggen-setup    - Full Postgres-target deployment (shared build + push + deploy)"
+	@echo "  make pggen-teardown - Remove Postgres-target generator deployment"
 	@echo ""
 	@echo "Fluent Bit log forwarding (CloudWatch Logs):"
 	@echo "  make log-dep        - Deploy fluent-bit DaemonSet to amazon-cloudwatch ns"
@@ -470,14 +476,14 @@ cdc-start: cdc-setup cdc-attach
 cdc-stop: cdc-detach cdc-teardown
 	@echo "CDC replication stopped."
 
-# Smoke test: insert a marker row into Postgres core.foo (replicated via CDC)
+# Smoke test: insert a marker Patient row into Postgres core.patient (replicated via CDC)
 cdc-test-insert:
-	@echo "Inserting a test row into core.foo on the cdc database..."
+	@echo "Inserting a test Patient row into core.patient on the cdc database..."
 	@$(call pg-run,psql "host=localhost port=5433 user=postgres dbname=cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-insert.sql)
 
 # Smoke test: query XTDB's attached pg_cdc to confirm the row replicated
 cdc-test-query:
-	@echo "Querying core.foo on the XTDB pg_cdc database..."
+	@echo "Querying core.patient on the XTDB pg_cdc database..."
 	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
@@ -603,6 +609,34 @@ gen-setup: gen-push gen-dep
 # Uninstall the generator
 gen-teardown:
 	@kubectl delete -f generator-deployment.yaml -n $(NAMESPACE) || true
+
+# ---- Postgres-target generator (second instance, same image, target=postgres) ----
+# Writes FHIR data into the Postgres 'cdc' db so it replicates into XTDB via CDC.
+# Reuses the shared gen-build/gen-push (one image); only the deployment differs.
+
+# Deploy the Postgres-target generator
+pggen-dep:
+	@echo "Deploying xtdb-fhir-generator-pg..."
+	@sed 's|IMAGE_PLACEHOLDER|$(ECR_GENERATOR_REPO):$(GENERATOR_TAG)|g' pg-generator-deployment.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@kubectl rollout restart deployment/xtdb-fhir-generator-pg -n $(NAMESPACE)
+
+# View Postgres-target generator logs
+pggen-logs:
+	@kubectl logs -f -l app=xtdb-fhir-generator-pg -n $(NAMESPACE)
+
+# Show Postgres-target generator pod status
+pggen-stat:
+	@kubectl get pods -l app=xtdb-fhir-generator-pg -n $(NAMESPACE)
+
+# Full Postgres-target deployment (shared build + push + deploy)
+pggen-setup: gen-push pggen-dep
+	@echo "Postgres-target generator (probably) fully deployed!"
+	@sleep 15
+	@kubectl logs -f -l app=xtdb-fhir-generator-pg -n $(NAMESPACE)
+
+# Uninstall the Postgres-target generator
+pggen-teardown:
+	@kubectl delete -f pg-generator-deployment.yaml -n $(NAMESPACE) || true
 
 # ===========================================
 # Guardrails Deploy (monitoring daemon)

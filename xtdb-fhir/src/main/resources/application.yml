@@ -1,6 +1,8 @@
 patient-generator:
   population: 2
   interval-seconds: 10
+  # Write target: 'xtdb' (INSERT … RECORDS, default) or 'postgres' (jsonb for CDC).
+  target: xtdb
 
 logging:
   level:

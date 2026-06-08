@@ -63,9 +63,10 @@ public class PatientGenerator implements AutoCloseable {
   private final int population;
 
   public PatientGenerator(HikariDataSource dataSource,
+                          ResourceWriter writer,
                           @Value("${patient-generator.population:2}") int population) {
     this.dataSource = dataSource;
-    this.importService = new FHIRImportService(dataSource);
+    this.importService = new FHIRImportService(dataSource, writer);
     this.population = population;
 
     // We better leave one connection idle for DataSource health checks to always succeed
