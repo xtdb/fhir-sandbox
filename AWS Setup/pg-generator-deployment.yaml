@@ -1,19 +1,20 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: xtdb-fhir-generator-config
+  name: xtdb-fhir-generator-pg-config
 data:
   application.yml: |
     patient-generator:
       population: 1
       interval-seconds: 10
-      # Write straight to XTDB via INSERT … RECORDS.
-      target: xtdb
+      # Write to Postgres (flat-column upsert into core.*); CDC replicates into XTDB.
+      target: postgres
 
     spring:
       datasource:
-        url: jdbc:postgresql://xtdb-service.xtdb-deployment.svc.cluster.local:5432/xtdb
-        username: xtdb
+        url: jdbc:postgresql://postgresql.xtdb-deployment.svc.cluster.local:5432/cdc
+        username: postgres
+        # password supplied via SPRING_DATASOURCE_PASSWORD env (from the postgresql Secret)
         hikari:
           connection-timeout: 11000
           maximum-pool-size: 10
@@ -33,16 +34,16 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: xtdb-fhir-generator
+  name: xtdb-fhir-generator-pg
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: xtdb-fhir-generator
+      app: xtdb-fhir-generator-pg
   template:
     metadata:
       labels:
-        app: xtdb-fhir-generator
+        app: xtdb-fhir-generator-pg
     spec:
       securityContext:
         runAsNonRoot: true
@@ -50,12 +51,17 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       containers:
-        - name: xtdb-fhir-generator
+        - name: xtdb-fhir-generator-pg
           image: IMAGE_PLACEHOLDER
           imagePullPolicy: Always
           env:
             - name: JAVA_OPTS
               value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql
+                  key: postgres-password
           resources:
             requests:
               memory: "2Gi"
@@ -94,7 +100,7 @@ spec:
           emptyDir: {}
         - name: app-config
           configMap:
-            name: xtdb-fhir-generator-config
+            name: xtdb-fhir-generator-pg-config
             items:
               - key: application.yml
                 path: application.yml
