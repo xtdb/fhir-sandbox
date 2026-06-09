@@ -1,5 +1,9 @@
 # Chaos Mesh RBAC
 #
+# CHAOS_USER_PLACEHOLDER is substituted with the submitting user's Kubernetes
+# username at apply time (see the Makefile chaos targets, which default it to
+# `kubectl auth whoami`). Do not hardcode an ARN here.
+#
 # Three bindings are required for a user to submit chaos experiments:
 #
 # 1. chaos-mesh namespace — grants the user permission to create Schedule/
@@ -28,7 +32,7 @@ roleRef:
   name: admin
 subjects:
   - kind: User
-    name: "arn:aws:sts::380613616955:assumed-role/AWSReservedSSO_AdministratorAccess_4cdeb1369a114010/egg"
+    name: "CHAOS_USER_PLACEHOLDER"
     apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -43,7 +47,7 @@ roleRef:
   name: admin
 subjects:
   - kind: User
-    name: "arn:aws:sts::380613616955:assumed-role/AWSReservedSSO_AdministratorAccess_4cdeb1369a114010/egg"
+    name: "CHAOS_USER_PLACEHOLDER"
     apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -69,5 +73,5 @@ roleRef:
   name: chaos-mesh-target
 subjects:
   - kind: User
-    name: "arn:aws:sts::380613616955:assumed-role/AWSReservedSSO_AdministratorAccess_4cdeb1369a114010/egg"
+    name: "CHAOS_USER_PLACEHOLDER"
     apiGroup: rbac.authorization.k8s.io

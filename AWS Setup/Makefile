@@ -26,6 +26,9 @@ GENERATOR_TAG ?= latest
 # Chaos Mesh settings
 CHAOS_MESH_VERSION := 2.7.2
 CHAOS_NAMESPACE    := chaos-mesh
+# Kubernetes username allowed to submit chaos experiments.
+# Defaults to the current user; override with `make chaos-install CHAOS_USER=...`.
+CHAOS_USER ?= $(shell kubectl auth whoami -o jsonpath='{.status.userInfo.username}' 2>/dev/null)
 
 # Current environment (read from file if exists)
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
@@ -233,7 +236,7 @@ setup:
 		--set chaosDaemon.runtime=containerd \
 		--set chaosDaemon.socketPath=/run/containerd/containerd.sock \
 		--set chaosDaemon.env.LOG_LEVEL=warn; \
-	kubectl apply -f chaos/chaos-rbac.yaml; \
+	sed 's|CHAOS_USER_PLACEHOLDER|$(CHAOS_USER)|g' chaos/chaos-rbac.yaml | kubectl apply -f -; \
 	\
 	echo ""; \
 	echo "=== Setup complete! ($$ENV) ==="; \
@@ -764,7 +767,7 @@ chaos-install:
 	    --set chaosDaemon.runtime=containerd \
 	    --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
 	    --set chaosDaemon.env.LOG_LEVEL=warn
-	kubectl apply -f chaos/chaos-rbac.yaml
+	sed 's|CHAOS_USER_PLACEHOLDER|$(CHAOS_USER)|g' chaos/chaos-rbac.yaml | kubectl apply -f -
 
 chaos-apply:
 	kubectl apply -f chaos/xtdb-podchaos.yaml
