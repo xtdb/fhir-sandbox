@@ -269,8 +269,10 @@ Cross-check what was applied with
 | Command              | Description                              |
 |----------------------|------------------------------------------|
 | `make chaos-install` | Install Chaos Mesh via Helm              |
-| `make chaos-apply`   | Apply the XTDB pod-kill experiment       |
-| `make chaos-delete`  | Remove the pod-kill experiment           |
+| `make chaos-apply`   | Apply the XTDB pod-kill experiment (every 4m)       |
+| `make chaos-delete`  | Remove the XTDB pod-kill experiment      |
+| `make chaos-pg-apply`| Apply the Postgres pod-kill experiment (every 15m)  |
+| `make chaos-pg-delete`| Remove the Postgres pod-kill experiment |
 | `make chaos-status`  | Show Chaos Mesh pods and active experiments |
 | `make chaos-teardown`| Uninstall Chaos Mesh entirely            |
 

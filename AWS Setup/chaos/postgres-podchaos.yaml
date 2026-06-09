@@ -1,0 +1,16 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: postgres-pod-restart
+  namespace: chaos-mesh
+spec:
+  schedule: "@every 15m"
+  type: PodChaos
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - xtdb-deployment
+      labelSelectors:
+        app.kubernetes.io/name: postgresql

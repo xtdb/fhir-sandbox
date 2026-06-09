@@ -42,6 +42,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
         pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown pggen-tune \
         log-dep log-logs log-stat log-teardown \
         chaos-install chaos-teardown chaos-apply chaos-delete chaos-status \
+        chaos-pg-apply chaos-pg-delete \
         scale-down scale-up
 
 # Show help/all commands
@@ -114,8 +115,10 @@ help:
 	@echo ""
 	@echo "Chaos engineering (opt-in, run after setup):"
 	@echo "  make chaos-install  - Install Chaos Mesh via Helm"
-	@echo "  make chaos-apply    - Apply XTDB pod-kill experiment"
-	@echo "  make chaos-delete   - Remove the pod-kill experiment"
+	@echo "  make chaos-apply    - Apply XTDB pod-kill experiment (every 4m)"
+	@echo "  make chaos-delete   - Remove the XTDB pod-kill experiment"
+	@echo "  make chaos-pg-apply - Apply Postgres pod-kill experiment (every 15m)"
+	@echo "  make chaos-pg-delete- Remove the Postgres pod-kill experiment"
 	@echo "  make chaos-status   - Show Chaos Mesh pods and active experiments"
 	@echo "  make chaos-teardown - Uninstall Chaos Mesh entirely"
 	@echo ""
@@ -774,6 +777,12 @@ chaos-apply:
 
 chaos-delete:
 	kubectl delete -f chaos/xtdb-podchaos.yaml 2>/dev/null || true
+
+chaos-pg-apply:
+	kubectl apply -f chaos/postgres-podchaos.yaml
+
+chaos-pg-delete:
+	kubectl delete -f chaos/postgres-podchaos.yaml 2>/dev/null || true
 
 chaos-status:
 	kubectl get pods -n $(CHAOS_NAMESPACE)
