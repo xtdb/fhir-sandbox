@@ -1,0 +1,15 @@
+# Source Kafka topic for the XTDB !KafkaConnect external source.
+# Created by `make kafka-src-start` (or kafka-src-create-topic); the Strimzi topic
+# operator (enabled in kafka-cluster-*.yaml) provisions it on the 'kafka' cluster.
+# Messages produced here are indexed into XTDB's 'events' table once kafka_src is
+# attached. Usage: kubectl apply -f kafka/kafka-source-topic.yaml
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: xtdb-source-events
+  namespace: xtdb-deployment
+  labels:
+    strimzi.io/cluster: kafka
+spec:
+  partitions: 1
+  replicas: 1

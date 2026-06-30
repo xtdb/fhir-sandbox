@@ -187,6 +187,40 @@ SELECT count(*) FROM core.patient;
 > `sql/attach-database.sql`. The Postgres tables need a replica identity for
 > updates/deletes — the generator tables use a primary key (`_id`), which covers it.
 
+## Kafka external source (`kafka-src-start` / `kafka-src-stop`)
+
+| Command                   | Description                                                       |
+|---------------------------|------------------------------------------------------------------|
+| `make kafka-src-start`    | Create the source Kafka topic + attach `kafka_src` in XTDB (starts indexing) |
+| `make kafka-src-stop`     | Detach `kafka_src` + delete the source topic (stops indexing)    |
+| `make kafka-src-test-insert` | Produce a marker JSON event into the source topic             |
+| `make kafka-src-test-query`  | Query XTDB `kafka_src` `events` to confirm it indexed         |
+
+This attaches a second external source that reads JSON messages straight from a
+Kafka topic (rather than Postgres CDC) and indexes each one into XTDB. Two sides:
+
+- **Kafka** (`kafka/kafka-source-topic.yaml`) — a Strimzi `KafkaTopic` CR
+  (`xtdb-source-events`) on the existing `kafka` cluster, provisioned by the topic
+  operator. This is the topic you produce into.
+- **XTDB** (`sql/attach-kafka-source.sql`) — `ATTACH DATABASE kafka_src` with an
+  `externalSource: !KafkaConnect` reading `xtdb-source-events`, converting values
+  as schemaless JSON and indexing them into the `events` table via `!Docs`. It
+  reuses the existing `kafkaCluster` logCluster. Only the S3 storage prefix
+  (`kafka-src-*`) is suffixed with a freshly generated UUID (printed on attach) so
+  detach + re-attach starts from a clean object store; the topic names are fixed.
+
+`make kafka-src-start` creates the topic then runs the attach; `make kafka-src-stop`
+runs the detach then deletes the topic. The granular targets — `kafka-src-create-topic`,
+`kafka-src-attach`, `kafka-src-detach`, `kafka-src-delete-topic` — are also available.
+
+To smoke-test once the source is running, `make kafka-src-test-insert` produces a
+marker event (`{"_id":"evt-…","type":"smoke-test",…}`) into the topic, and
+`make kafka-src-test-query` reads the latest `events` rows back from the attached
+`kafka_src` database — the marker should appear there once indexed.
+
+> Note: each produced message must carry an `_id` field (XTDB requires it on every
+> indexed row); the `!Docs` indexer maps the rest of the JSON onto the `events` table.
+
 ## Legacy batch importer (xtdb-fhir)
 
 | Command            | Description                            |

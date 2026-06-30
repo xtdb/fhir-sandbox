@@ -37,6 +37,8 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
         pg-dep pg-logs pg-stat pg-teardown pg-con \
         cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-detach \
         cdc-test-insert cdc-test-query \
+        kafka-src-start kafka-src-stop kafka-src-attach kafka-src-detach \
+        kafka-src-create-topic kafka-src-delete-topic kafka-src-test-insert kafka-src-test-query \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown gen-tune cloud-logs \
         pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown pggen-tune \
@@ -78,6 +80,12 @@ help:
 	@echo "  make cdc-stop       - Detach pg_cdc + drop the cdc database (stops CDC)"
 	@echo "  make cdc-test-insert - Insert a test Patient row into Postgres core.patient (CDC smoke test)"
 	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.patient to confirm it replicated"
+	@echo ""
+	@echo "Kafka external source (!KafkaConnect into the 'events' table):"
+	@echo "  make kafka-src-start - Create the source topic + attach kafka_src in XTDB (starts indexing)"
+	@echo "  make kafka-src-stop  - Detach kafka_src + delete the source topic (stops indexing)"
+	@echo "  make kafka-src-test-insert - Produce a test JSON event into the source topic"
+	@echo "  make kafka-src-test-query  - Query XTDB kafka_src events to confirm it indexed"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -493,6 +501,60 @@ cdc-test-insert:
 cdc-test-query:
 	@echo "Querying core.patient on the XTDB pg_cdc database..."
 	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql)
+
+# ===========================================
+# Kafka external source (Kafka topic -> XTDB ATTACH DATABASE via !KafkaConnect)
+# ===========================================
+# kafka-src-start creates the source Kafka topic (Strimzi KafkaTopic CR) and
+# attaches the kafka_src external source in XTDB, which reads JSON messages from
+# that topic and indexes them into the 'events' table. kafka-src-stop reverses
+# both. The attach reuses the existing 'kafkaCluster' logCluster; only the S3
+# storage prefix is suffixed with a generated UUID so detach + re-attach starts
+# from a clean object store (topic names are fixed). SQL lives in sql/*.sql.
+
+# Create the source Kafka topic
+kafka-src-create-topic:
+	@echo "Creating Kafka source topic..."
+	@kubectl apply -f kafka/kafka-source-topic.yaml -n $(NAMESPACE)
+
+# Delete the source Kafka topic
+kafka-src-delete-topic:
+	@echo "Deleting Kafka source topic..."
+	@kubectl delete -f kafka/kafka-source-topic.yaml -n $(NAMESPACE) || true
+
+# Attach kafka_src in XTDB (storage prefix suffixed with a fresh UUID)
+kafka-src-attach:
+	@UUID=$$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || cat /proc/sys/kernel/random/uuid); \
+	echo "Attaching kafka_src (storage suffix: $$UUID)..."; \
+	$(call xtdb-run,sed "s/__UUID__/$$UUID/g" sql/attach-kafka-source.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1)
+
+# Detach kafka_src in XTDB
+kafka-src-detach:
+	@echo "Detaching kafka_src..."
+	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1 -f sql/detach-kafka-source.sql)
+
+# Start the Kafka external source: create the source topic, then XTDB attach
+kafka-src-start: kafka-src-create-topic kafka-src-attach
+	@echo "Kafka external source started."
+
+# Stop the Kafka external source: XTDB detach, then delete the source topic
+kafka-src-stop: kafka-src-detach kafka-src-delete-topic
+	@echo "Kafka external source stopped."
+
+# Smoke test: produce a marker JSON event into the source topic (indexed via !KafkaConnect)
+kafka-src-test-insert:
+	@echo "Producing a test event into the Kafka source topic..."
+	@POD=$$(kubectl get pod -n $(NAMESPACE) -l strimzi.io/cluster=kafka -o jsonpath='{.items[0].metadata.name}'); \
+	MARKER="evt-$$(date +%s)"; \
+	echo "{\"_id\":\"$$MARKER\",\"type\":\"smoke-test\",\"source\":\"kafka-src-test-insert\"}" \
+	  | kubectl exec -i $$POD -n $(NAMESPACE) -- /opt/kafka/bin/kafka-console-producer.sh \
+	      --bootstrap-server localhost:9092 --topic xtdb-source-events; \
+	echo "Produced event $$MARKER."
+
+# Smoke test: query XTDB's attached kafka_src to confirm the event indexed
+kafka-src-test-query:
+	@echo "Querying the events table on the XTDB kafka_src database..."
+	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 -f sql/kafka-src-test-query.sql)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:
