@@ -15,12 +15,12 @@ public class ManualTests {
 
   @Test
   void testImport(DataSource dataSource) throws Exception {
-    var importService = new FHIRImportService(dataSource, new XtdbRecordsWriter());
+    var importService = new FHIRImportService(new JdbcResourceSink(dataSource, new XtdbRecordsWriter(), 1));
     File file = new File(ClassLoader.getSystemResource("fhir_sample.json").toURI());
     var jsonNode = JsonUtil.parseFile(file);
-    try (var conn = dataSource.getConnection()){
-      importService.processBundle(jsonNode, conn);
+    importService.processBundle(jsonNode);
 
+    try (var conn = dataSource.getConnection()){
       try (var stmt = conn.createStatement(); var resultSet = stmt.executeQuery("SELECT * FROM patient")) {
         var md = resultSet.getMetaData();
         int cols = md.getColumnCount();

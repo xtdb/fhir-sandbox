@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import xtdb.fhir.FHIRImportService;
+import xtdb.fhir.JdbcResourceSink;
 import xtdb.fhir.XtdbRecordsWriter;
 
 @Disabled
@@ -42,7 +43,7 @@ public class XTDBServiceTest {
       try (Connection conn = dataSource.getConnection()) {
         xtdbAvailable = conn.isValid(5);
       }
-      xtdbService = new FHIRImportService(dataSource, new XtdbRecordsWriter());
+      xtdbService = new FHIRImportService(new JdbcResourceSink(dataSource, new XtdbRecordsWriter(), 1));
     } catch (Exception e) {
       xtdbAvailable = false;
     }

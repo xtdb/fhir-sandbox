@@ -4,8 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,15 +16,12 @@ import org.slf4j.LoggerFactory;
 import xtdb.fhir.util.JsonUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 
-import javax.sql.DataSource;
-
 // Service that imports FHIR JSON bundles into XTDB.
 public class FHIRImportService {
 
   private static final Logger logger = LoggerFactory.getLogger(FHIRImportService.class);
 
-  private final DataSource dataSource;
-  private final ResourceWriter writer;
+  private final ResourceSink sink;
 
   // Statistics for logging
   private int filesProcessed = 0;
@@ -36,9 +31,8 @@ public class FHIRImportService {
   private int otherResourcesStored = 0;
   private int errors = 0;
 
-  public FHIRImportService(DataSource dataSource, ResourceWriter writer) {
-    this.dataSource = dataSource;
-    this.writer = writer;
+  public FHIRImportService(ResourceSink sink) {
+    this.sink = sink;
   }
 
   // =========================================================================
@@ -88,13 +82,11 @@ public class FHIRImportService {
         return;
       }
 
-      try (Connection conn = dataSource.getConnection()) {
-        conn.setAutoCommit(false);
-        processBundle(root, conn);
-        conn.commit();
+      try {
+        processBundle(root);
         filesProcessed++;
-      } catch (SQLException e) {
-        logger.error("Database error processing {}: {}", file.getName(), e.getMessage());
+      } catch (Exception e) {
+        logger.error("Error processing {}: {}", file.getName(), e.getMessage());
         errors++;
       }
 
@@ -116,15 +108,10 @@ public class FHIRImportService {
    * the patient record's "data" field for future use.
    *
    * @param bundle The FHIR Bundle to process
-   * @param conn The database connection to use for insertion
-   * @throws SQLException If there is an error processing the bundle
+   * @throws Exception If there is an error writing the bundle to the sink
    */
-  public void processBundle(JsonNode bundle, Connection conn) throws SQLException {
-    var resourcesByType = extractResourcesByType(bundle);
-
-    for (var mapEntry : resourcesByType.entrySet()) {
-      writer.writeBatch(conn, mapEntry.getKey(), mapEntry.getValue());
-    }
+  public void processBundle(JsonNode bundle) throws Exception {
+    sink.writeBundle(extractResourcesByType(bundle));
   }
 
   public HashMap<String, List<JsonNode>> extractResourcesByType(JsonNode bundle) {

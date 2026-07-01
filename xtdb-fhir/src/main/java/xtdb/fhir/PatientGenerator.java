@@ -13,8 +13,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
-import com.zaxxer.hikari.HikariDataSource;
-
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -58,22 +56,17 @@ public class PatientGenerator implements AutoCloseable {
 
   private final ExecutorService generatorExecutor = Executors.newSingleThreadExecutor();
   private final ExecutorService insertionExecutor;
-  private final HikariDataSource dataSource;
   private final FHIRImportService importService;
   private final int population;
 
-  public PatientGenerator(HikariDataSource dataSource,
-                          ResourceWriter writer,
+  public PatientGenerator(ResourceSink sink,
                           @Value("${patient-generator.population:2}") int population,
                           @Value("${patient-generator.interval-seconds:10}") int intervalSeconds) {
-    this.dataSource = dataSource;
-    this.importService = new FHIRImportService(dataSource, writer);
+    this.importService = new FHIRImportService(sink);
     this.population = population;
     log.info("PatientGenerator config: population={}, interval={}s", population, intervalSeconds);
 
-    // We better leave one connection idle for DataSource health checks to always succeed
-    if (!(dataSource.getMaximumPoolSize() >= 2)) throw new IllegalStateException("pool size must be >= 2");
-    this.insertionExecutor = Executors.newFixedThreadPool(dataSource.getMaximumPoolSize() - 1);
+    this.insertionExecutor = Executors.newFixedThreadPool(sink.maxConcurrency());
   }
 
   @Override
@@ -113,8 +106,8 @@ public class PatientGenerator implements AutoCloseable {
         var patientBundleNode = JsonUtil.getMapper().readTree(patientBundle);
 
         var future = CompletableFuture.runAsync(() -> {
-          try (var conn = dataSource.getConnection()) {
-            importService.processBundle(patientBundleNode, conn);
+          try {
+            importService.processBundle(patientBundleNode);
             log.debug("Done inserting patient {}", patientIndex);
           } catch (Exception e) {
             log.error("Error inserting patient {}", patientIndex, e);

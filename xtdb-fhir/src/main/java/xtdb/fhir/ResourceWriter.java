@@ -9,9 +9,10 @@ import java.util.List;
 /**
  * Strategy for writing a batch of same-typed FHIR resources to a target store.
  *
- * Selected at runtime by the {@code patient-generator.target} property
- * (see {@link WriterConfig}): {@link XtdbRecordsWriter} writes straight to XTDB,
- * {@link PostgresJsonbWriter} writes to Postgres for CDC replication.
+ * Used by {@link JdbcResourceSink} against a JDBC connection: {@link XtdbRecordsWriter}
+ * writes straight to XTDB, {@link PostgresColumnWriter} writes to Postgres for CDC
+ * replication. The target is selected at runtime by the
+ * {@code patient-generator.target} property (see {@link SinkConfig}).
  */
 public interface ResourceWriter {
 
