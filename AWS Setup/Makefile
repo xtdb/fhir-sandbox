@@ -42,6 +42,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown gen-tune cloud-logs \
         pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown pggen-tune \
+        kafkagen-dep kafkagen-logs kafkagen-stat kafkagen-setup kafkagen-teardown kafkagen-tune \
         log-dep log-logs log-stat log-teardown \
         chaos-install chaos-teardown chaos-apply chaos-delete chaos-status \
         chaos-pg-apply chaos-pg-delete \
@@ -82,11 +83,11 @@ help:
 	@echo "  make cdc-test-insert - Insert a test Patient row into Postgres core.patient (CDC smoke test)"
 	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.patient to confirm it replicated"
 	@echo ""
-	@echo "Kafka external source (!KafkaConnect into the 'events' table):"
+	@echo "Kafka external source (!KafkaConnect into the 'patient' table):"
 	@echo "  make kafka-src-start - Create the source topic + attach kafka_src in XTDB (starts indexing)"
 	@echo "  make kafka-src-stop  - Detach kafka_src + delete the source topic (stops indexing)"
 	@echo "  make kafka-src-test-insert - Produce a test JSON event into the source topic"
-	@echo "  make kafka-src-test-query  - Query XTDB kafka_src events to confirm it indexed"
+	@echo "  make kafka-src-test-query  - Query XTDB kafka_src patient to confirm it indexed"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -115,6 +116,13 @@ help:
 	@echo "  make pggen-setup    - Full Postgres-target deployment (shared build + push + deploy)"
 	@echo "  make pggen-teardown - Remove Postgres-target generator deployment"
 	@echo "  make pggen-tune     - Retune Postgres-target generator load (prompts; rolls pod)"
+	@echo ""
+	@echo "  make kafkagen-dep      - Deploy Kafka-target generator (produces Patients to xtdb-source-events)"
+	@echo "  make kafkagen-logs     - View Kafka-target generator logs"
+	@echo "  make kafkagen-stat     - Show Kafka-target generator pod status"
+	@echo "  make kafkagen-setup    - Full Kafka-target deployment (shared build + push + deploy)"
+	@echo "  make kafkagen-teardown - Remove Kafka-target generator deployment"
+	@echo "  make kafkagen-tune     - Retune Kafka-target generator load (prompts; rolls pod)"
 	@echo ""
 	@echo "Fluent Bit log forwarding (CloudWatch Logs):"
 	@echo "  make log-dep        - Deploy fluent-bit DaemonSet to amazon-cloudwatch ns"
@@ -518,7 +526,7 @@ cdc-test-query:
 # ===========================================
 # kafka-src-start creates the source Kafka topic (Strimzi KafkaTopic CR) and
 # attaches the kafka_src external source in XTDB, which reads JSON messages from
-# that topic and indexes them into the 'events' table. kafka-src-stop reverses
+# that topic and indexes them into the 'patient' table. kafka-src-stop reverses
 # both. The attach reuses the existing 'kafkaCluster' logCluster; only the S3
 # storage prefix is suffixed with a generated UUID so detach + re-attach starts
 # from a clean object store (topic names are fixed). SQL lives in sql/*.sql.
@@ -552,19 +560,20 @@ kafka-src-start: kafka-src-create-topic kafka-src-attach
 kafka-src-stop: kafka-src-detach kafka-src-delete-topic
 	@echo "Kafka external source stopped."
 
-# Smoke test: produce a marker JSON event into the source topic (indexed via !KafkaConnect)
+# Smoke test: produce a marker patient doc into the source topic (indexed via !KafkaConnect).
+# Shaped like the generator's output — just an _id (XTDB requires it), no extra fields.
 kafka-src-test-insert:
-	@echo "Producing a test event into the Kafka source topic..."
+	@echo "Producing a test patient into the Kafka source topic..."
 	@POD=$$(kubectl get pod -n $(NAMESPACE) -l strimzi.io/cluster=kafka -o jsonpath='{.items[0].metadata.name}'); \
-	MARKER="evt-$$(date +%s)"; \
-	echo "{\"_id\":\"$$MARKER\",\"type\":\"smoke-test\",\"source\":\"kafka-src-test-insert\"}" \
+	MARKER="patient-smoke-$$(date +%s)"; \
+	echo "{\"_id\":\"$$MARKER\"}" \
 	  | kubectl exec -i $$POD -n $(NAMESPACE) -- /opt/kafka/bin/kafka-console-producer.sh \
 	      --bootstrap-server localhost:9092 --topic xtdb-source-events; \
-	echo "Produced event $$MARKER."
+	echo "Produced patient $$MARKER."
 
 # Smoke test: query XTDB's attached kafka_src to confirm the event indexed
 kafka-src-test-query:
-	@echo "Querying the events table on the XTDB kafka_src database..."
+	@echo "Querying the patient table on the XTDB kafka_src database..."
 	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 -f sql/kafka-src-test-query.sql)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
@@ -749,6 +758,50 @@ pggen-tune:
 	esac; \
 	echo "Tuning xtdb-fhir-generator-pg: population=$$pop interval=$${secs}s (rolling)..."; \
 	kubectl set env deployment/xtdb-fhir-generator-pg -n $(NAMESPACE) \
+	  PATIENT_GENERATOR_POPULATION=$$pop PATIENT_GENERATOR_INTERVAL_SECONDS=$$secs
+
+# ===========================================
+# Kafka-target generator (produces Patient resources to the xtdb-source-events
+# topic; XTDB's kafka_src !KafkaConnect source indexes them into the 'patient'
+# table). Shares the generator image; only the write target differs. Run
+# `make kafka-src-start` first so the source is attached.
+kafkagen-dep:
+	@echo "Deploying xtdb-fhir-generator-kafka..."
+	@sed 's|IMAGE_PLACEHOLDER|$(ECR_GENERATOR_REPO):$(GENERATOR_TAG)|g' kafka-generator-deployment.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@kubectl rollout restart deployment/xtdb-fhir-generator-kafka -n $(NAMESPACE)
+
+# View Kafka-target generator logs
+kafkagen-logs:
+	@kubectl logs -f -l app=xtdb-fhir-generator-kafka -n $(NAMESPACE)
+
+# Show Kafka-target generator pod status
+kafkagen-stat:
+	@kubectl get pods -l app=xtdb-fhir-generator-kafka -n $(NAMESPACE)
+
+# Full Kafka-target deployment (shared build + push + deploy)
+kafkagen-setup: gen-push kafkagen-dep
+	@echo "Kafka-target generator (probably) fully deployed!"
+	@sleep 15
+	@kubectl logs -f -l app=xtdb-fhir-generator-kafka -n $(NAMESPACE)
+
+# Uninstall the Kafka-target generator
+kafkagen-teardown:
+	@kubectl delete -f kafka-generator-deployment.yaml -n $(NAMESPACE) || true
+
+# Retune the Kafka-target generator load (prompts for population + interval).
+# Both are read at startup, so this sets env overrides and rolls the pod.
+# Interval accepts a duration (30s, 5m, 1h) or a bare number of seconds.
+kafkagen-tune:
+	@read -p "Patient population per tick: " pop; \
+	read -p "Interval between ticks (e.g. 30s, 5m, 1h, or seconds): " iv; \
+	case "$$iv" in \
+	  *h) secs=$$(( $${iv%h} * 3600 ));; \
+	  *m) secs=$$(( $${iv%m} * 60 ));; \
+	  *s) secs=$${iv%s} ;; \
+	  *)  secs=$$iv ;; \
+	esac; \
+	echo "Tuning xtdb-fhir-generator-kafka: population=$$pop interval=$${secs}s (rolling)..."; \
+	kubectl set env deployment/xtdb-fhir-generator-kafka -n $(NAMESPACE) \
 	  PATIENT_GENERATOR_POPULATION=$$pop PATIENT_GENERATOR_INTERVAL_SECONDS=$$secs
 
 # ===========================================

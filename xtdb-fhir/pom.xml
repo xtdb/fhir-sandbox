@@ -130,6 +130,12 @@
       <version>${hikaricp.version}</version>
     </dependency>
 
+    <!-- Kafka producer (kafka write target) -->
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+    </dependency>
+
     <!-- Logging -->
     <dependency>
       <groupId>ch.qos.logback</groupId>

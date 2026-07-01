@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xtdb-fhir-generator-kafka-config
+data:
+  application.yml: |
+    patient-generator:
+      population: 1
+      interval-seconds: 10
+      # Produce Patient resources to Kafka; XTDB's kafka_src !KafkaConnect source
+      # indexes them into the 'patient' table.
+      target: kafka
+      kafka:
+        bootstrap-servers: kafka-kafka-bootstrap.xtdb-deployment.svc.cluster.local:9092
+        topic: xtdb-source-events
+
+    spring:
+      # No JDBC target for the kafka writer — keep Spring from configuring a DataSource.
+      autoconfigure:
+        exclude:
+          - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      cloud:
+        aws:
+          parameterstore:
+            enabled: false
+
+    logging:
+      level:
+        root: INFO
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xtdb-fhir-generator-kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xtdb-fhir-generator-kafka
+  template:
+    metadata:
+      labels:
+        app: xtdb-fhir-generator-kafka
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: xtdb-fhir-generator-kafka
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: Always
+          env:
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "100m"
+            limits:
+              memory: "4Gi"
+              cpu: "1000m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: app-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: app-config
+          configMap:
+            name: xtdb-fhir-generator-kafka-config
+            items:
+              - key: application.yml
+                path: application.yml
