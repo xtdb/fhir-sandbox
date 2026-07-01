@@ -123,6 +123,7 @@ the `postgresql` Secret password is injected into the XTDB pods as `PGUSER` /
 | `make pg-teardown`| Uninstall PostgreSQL (the PVC is retained)              |
 | `make cdc-start`  | Create the `cdc` database (schema/tables/publication) + attach `pg_cdc` in XTDB (starts CDC) |
 | `make cdc-stop`   | Detach `pg_cdc` + drop the `cdc` database (stops CDC) |
+| `make cdc-reattach UUID=<uuid>` | Re-attach an existing `pg_cdc` db in XTDB by its UUID (validates `pg-cdc-<uuid>` exists in S3; XTDB-only, no Postgres-side changes) |
 | `make cdc-test-insert` | Insert a marker Patient row into Postgres `core.patient` (CDC smoke test) |
 | `make cdc-test-query`  | Query XTDB `pg_cdc` `core.patient` to confirm the row replicated |
 
@@ -152,6 +153,13 @@ the detach then drops the whole `cdc` database (`sql/cdc-teardown.sql` — drops
 replication slot first, then the database) for a clean slate. The granular
 targets — `cdc-setup`, `cdc-attach`, `cdc-detach`, `cdc-teardown` — are also
 available individually.
+
+Because `cdc-detach` leaves the object-store data in place, an existing `pg_cdc`
+can be brought back with `make cdc-reattach UUID=<uuid>` — this is XTDB-only (no
+Postgres-side changes) and re-uses the given UUID's Kafka topics / S3 prefix
+rather than minting a fresh one. It first checks `pg-cdc-<uuid>` exists in the S3
+bucket and aborts if not, so you only re-attach a db whose durable data is still
+present. The UUID is the suffix printed at attach time (`pg-cdc-<uuid>`).
 
 To smoke-test the round-trip once CDC is running, `make cdc-test-insert` writes a
 marker Patient row into Postgres `core.patient` (its `status` carries a

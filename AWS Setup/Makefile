@@ -35,7 +35,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
         pg-dep pg-logs pg-stat pg-teardown pg-con \
-        cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-detach \
+        cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-reattach cdc-detach \
         cdc-test-insert cdc-test-query \
         kafka-src-start kafka-src-stop kafka-src-attach kafka-src-detach \
         kafka-src-create-topic kafka-src-delete-topic kafka-src-test-insert kafka-src-test-query \
@@ -78,6 +78,7 @@ help:
 	@echo "  make pg-teardown    - Uninstall PostgreSQL (PVC retained)"
 	@echo "  make cdc-start      - Set up the cdc database + attach pg_cdc in XTDB (starts CDC)"
 	@echo "  make cdc-stop       - Detach pg_cdc + drop the cdc database (stops CDC)"
+	@echo "  make cdc-reattach UUID=<uuid> - Re-attach an existing pg_cdc db in XTDB (validates pg-cdc-<uuid> exists in S3)"
 	@echo "  make cdc-test-insert - Insert a test Patient row into Postgres core.patient (CDC smoke test)"
 	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.patient to confirm it replicated"
 	@echo ""
@@ -478,6 +479,16 @@ cdc-attach:
 	@UUID=$$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || cat /proc/sys/kernel/random/uuid); \
 	echo "Attaching pg_cdc (suffix: $$UUID)..."; \
 	$(call xtdb-run,sed "s/__UUID__/$$UUID/g" sql/attach-database.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1)
+
+# Re-attach an existing pg_cdc db in XTDB by its UUID (XTDB-only, no Postgres-side
+# changes). Validates that the pg-cdc-<UUID> prefix exists in S3 before attaching,
+# so you only re-attach a db whose durable object-store data is still present.
+# Usage: make cdc-reattach UUID=<uuid>
+cdc-reattach:
+	@test -n "$(UUID)" || { echo "Error: UUID is required, e.g. make cdc-reattach UUID=<uuid>"; exit 1; }
+	@aws s3 ls s3://$(S3_BUCKET)/pg-cdc-$(UUID)/ >/dev/null 2>&1 || { echo "Error: no S3 data found at s3://$(S3_BUCKET)/pg-cdc-$(UUID)/ — nothing to re-attach"; exit 1; }
+	@echo "Re-attaching pg_cdc (suffix: $(UUID))..."
+	@$(call xtdb-run,sed "s/__UUID__/$(UUID)/g" sql/attach-database.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1)
 
 # Detach pg_cdc in XTDB
 cdc-detach:
