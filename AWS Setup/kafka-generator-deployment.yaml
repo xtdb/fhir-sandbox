@@ -15,10 +15,6 @@ data:
         topic: xtdb-source-events
 
     spring:
-      # No JDBC target for the kafka writer — keep Spring from configuring a DataSource.
-      autoconfigure:
-        exclude:
-          - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       cloud:
         aws:
           parameterstore:

@@ -8,6 +8,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,13 +22,28 @@ import java.util.Properties;
  * property ({@code xtdb} by default, {@code postgres}, or {@code kafka}). Set
  * per-deployment via the app ConfigMap so the same image can run against any
  * target. The {@code xtdb}/{@code postgres} targets need a JDBC DataSource; the
- * {@code kafka} target needs {@code patient-generator.kafka.*} instead (and its
- * deployment excludes DataSourceAutoConfiguration).
+ * {@code kafka} target needs {@code patient-generator.kafka.*} instead.
+ *
+ * Boot's DataSourceAutoConfiguration is disabled (see {@link PatientGenerator}) so
+ * we own the DataSource: the {@link #dataSource} bean is created only for the JDBC
+ * targets, mirroring how the KafkaProducer is created only for the kafka target.
+ * The kafka deployment therefore starts up with no DataSource (and no failing db
+ * health check) at all.
  */
 @Configuration
+@EnableConfigurationProperties(DataSourceProperties.class)
 public class SinkConfig {
 
   private static final Logger log = LoggerFactory.getLogger(SinkConfig.class);
+
+  // Hikari pool bound to spring.datasource.* — only for the JDBC targets. Absent
+  // for target=kafka, so no DataSource (or db health indicator) is created there.
+  @Bean
+  @ConditionalOnExpression("'${patient-generator.target:xtdb}' != 'kafka'")
+  @ConfigurationProperties("spring.datasource.hikari")
+  public HikariDataSource dataSource(DataSourceProperties props) {
+    return props.initializeDataSourceBuilder().type(HikariDataSource.class).build();
+  }
 
   @Bean
   public ResourceSink resourceSink(

@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -21,7 +22,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-@SpringBootApplication
+// DataSource is owned by SinkConfig (created only for the jdbc targets), not by
+// Boot's autoconfig — so the kafka target starts up with no DataSource at all.
+@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)
 @EnableScheduling
 public class PatientGenerator implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(PatientGenerator.class);
