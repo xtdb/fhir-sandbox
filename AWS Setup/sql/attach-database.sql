@@ -15,4 +15,5 @@ externalSource: !Postgres
   remote: "cdc"
   publicationName: "xtdb"
   slotName: "xtdb_cdc"
+  indexer: !DirectMirror {}
 $$;
