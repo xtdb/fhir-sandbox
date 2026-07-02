@@ -5,8 +5,8 @@ metadata:
 data:
   application.yml: |
     patient-generator:
-      population: 1
-      interval-seconds: 10
+      population: 50
+      interval-seconds: 1
       # Produce Patient resources to Kafka; XTDB's kafka_src !KafkaConnect source
       # indexes them into the 'patient' table.
       target: kafka
