@@ -142,6 +142,8 @@ help:
 	@echo "Ingestion benchmark (Java JDBC vs Node.js Postgres.js):"
 	@echo "  make bench-java-build/push/run/logs/teardown"
 	@echo "  make bench-js-build/push/run/logs/teardown"
+	@echo "Kafka source benchmark (produce patients to the source topic, measure XTDB indexing):"
+	@echo "  make bench-kafka-build/push/run/logs/teardown"
 	@echo "  make bench-follower-svc            - Apply ClusterIP Service targeting only xtdb-statefulset-1"
 	@echo "  make bench-follower-svc-teardown   - Remove the follower-only Service"
 	@echo "  Overrides: MODE=batched|sequential TOTAL_ROWS=... ROWS_PER_TXN=... WARMUP_TXNS=..."
@@ -927,10 +929,12 @@ chaos-teardown:
 #   make bench-java-run MODE=sequential TOTAL_ROWS=200000
 # ===========================================
 
-ECR_BENCH_JAVA_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-java --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
-ECR_BENCH_JS_REPO   ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-js   --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
-BENCH_JAVA_TAG      ?= latest
-BENCH_JS_TAG        ?= latest
+ECR_BENCH_JAVA_REPO  ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-java  --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+ECR_BENCH_JS_REPO    ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-js    --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+ECR_BENCH_KAFKA_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-kafka --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+BENCH_JAVA_TAG       ?= latest
+BENCH_JS_TAG         ?= latest
+BENCH_KAFKA_TAG      ?= latest
 
 # Benchmark parameters (same defaults on both runners)
 MODE                    ?= batched
@@ -945,8 +949,14 @@ ASYNC_TX                ?= false
 #   make bench-js-run XTDB_HOST=xtdb-service-follower.xtdb-deployment.svc.cluster.local
 XTDB_HOST               ?= xtdb-service.xtdb-deployment.svc.cluster.local
 
-.PHONY: bench-java-build bench-java-push bench-java-run bench-java-logs bench-java-teardown \
-        bench-js-build   bench-js-push   bench-js-run   bench-js-logs   bench-js-teardown \
+# Kafka source benchmark parameters (bench-kafka-*)
+TOTAL_MSGS              ?= 500000
+KAFKA_BOOTSTRAP         ?= kafka-kafka-bootstrap.$(NAMESPACE).svc.cluster.local:9092
+SOURCE_TOPIC            ?= xtdb-source-events
+
+.PHONY: bench-java-build  bench-java-push  bench-java-run  bench-java-logs  bench-java-teardown \
+        bench-js-build    bench-js-push    bench-js-run    bench-js-logs    bench-js-teardown \
+        bench-kafka-build bench-kafka-push bench-kafka-run bench-kafka-logs bench-kafka-teardown \
         bench-follower-svc bench-follower-svc-teardown
 
 # ---- Follower-only Service (isolates bench traffic to xtdb-statefulset-1) ----
@@ -1021,3 +1031,43 @@ bench-js-logs:
 
 bench-js-teardown:
 	@kubectl delete job bench-js -n $(NAMESPACE) --ignore-not-found
+
+# ---- Kafka source (produce patient docs to the source topic, measure XTDB indexing) ----
+# Requires the kafka_src source to be attached (`make kafka-src-start`).
+# bench-kafka-run refuses to start while the kafka-target generator is running,
+# since its writes to the same topic would skew the patient counts.
+bench-kafka-build:
+	@echo "Building xtdb-fhir-bench-kafka image..."
+	@cd ../benchmark/kafka-source && docker build -t xtdb-fhir-bench-kafka:$(BENCH_KAFKA_TAG) .
+
+bench-kafka-push: bench-kafka-build
+	@echo "Pushing xtdb-fhir-bench-kafka to ECR: $(ECR_BENCH_KAFKA_REPO):$(BENCH_KAFKA_TAG)"
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_BENCH_KAFKA_REPO)
+	@docker tag xtdb-fhir-bench-kafka:$(BENCH_KAFKA_TAG) $(ECR_BENCH_KAFKA_REPO):$(BENCH_KAFKA_TAG)
+	@docker push $(ECR_BENCH_KAFKA_REPO):$(BENCH_KAFKA_TAG)
+
+bench-kafka-run:
+	@REPLICAS=$$(kubectl get deployment xtdb-fhir-generator-kafka -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0); \
+	if [ "$${REPLICAS:-0}" -gt 0 ]; then \
+	  echo "ERROR: xtdb-fhir-generator-kafka is running ($$REPLICAS replica(s)) - its writes would skew the patient counts."; \
+	  echo "Stop it first: make kafkagen-teardown"; \
+	  exit 1; \
+	fi
+	@echo "Running bench-kafka Job (total_msgs=$(TOTAL_MSGS) topic=$(SOURCE_TOPIC))..."
+	@kubectl delete job bench-kafka -n $(NAMESPACE) --ignore-not-found
+	@sed -e 's|IMAGE_PLACEHOLDER|$(ECR_BENCH_KAFKA_REPO):$(BENCH_KAFKA_TAG)|g' \
+	     -e 's|KAFKA_BOOTSTRAP_PLACEHOLDER|$(KAFKA_BOOTSTRAP)|g' \
+	     -e 's|TOPIC_PLACEHOLDER|$(SOURCE_TOPIC)|g' \
+	     -e 's|TOTAL_MSGS_PLACEHOLDER|$(TOTAL_MSGS)|g' \
+	     -e 's|XTDB_HOST_PLACEHOLDER|$(XTDB_HOST)|g' \
+	     benchmark-kafka-job.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@echo "Waiting for pod to start..."
+	@until kubectl get pod -l app=bench-kafka -n $(NAMESPACE) -o name 2>/dev/null | grep -q .; do sleep 1; done
+	@kubectl wait --for=condition=Ready pod -l app=bench-kafka -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
+	@kubectl logs -f -l app=bench-kafka -n $(NAMESPACE)
+
+bench-kafka-logs:
+	@kubectl logs -f -l app=bench-kafka -n $(NAMESPACE)
+
+bench-kafka-teardown:
+	@kubectl delete job bench-kafka -n $(NAMESPACE) --ignore-not-found
