@@ -123,6 +123,46 @@ resource "aws_ecr_lifecycle_policy" "xtdb_fhir_bench_kafka_lifecycle" {
   })
 }
 
+resource "aws_ecr_repository" "xtdb_fhir_bench_cdc" {
+  name                 = "xtdb-fhir-bench-cdc"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Name        = "xtdb-fhir-bench-cdc"
+    Environment = "production"
+    Project     = "fhir-sandbox"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "xtdb_fhir_bench_cdc_lifecycle" {
+  repository = aws_ecr_repository.xtdb_fhir_bench_cdc.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 10 images"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
 output "ecr_bench_java_repository_url" {
   description = "ECR repository URL for xtdb-fhir-bench-java"
   value       = aws_ecr_repository.xtdb_fhir_bench_java.repository_url
@@ -136,4 +176,9 @@ output "ecr_bench_js_repository_url" {
 output "ecr_bench_kafka_repository_url" {
   description = "ECR repository URL for xtdb-fhir-bench-kafka"
   value       = aws_ecr_repository.xtdb_fhir_bench_kafka.repository_url
+}
+
+output "ecr_bench_cdc_repository_url" {
+  description = "ECR repository URL for xtdb-fhir-bench-cdc"
+  value       = aws_ecr_repository.xtdb_fhir_bench_cdc.repository_url
 }

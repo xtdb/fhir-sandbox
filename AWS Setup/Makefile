@@ -144,6 +144,8 @@ help:
 	@echo "  make bench-js-build/push/run/logs/teardown"
 	@echo "Kafka source benchmark (produce patients to the source topic, measure XTDB indexing):"
 	@echo "  make bench-kafka-build/push/run/logs/teardown"
+	@echo "CDC source benchmark (insert patient rows into Postgres, measure XTDB replication):"
+	@echo "  make bench-cdc-build/push/run/logs/teardown"
 	@echo "  make bench-follower-svc            - Apply ClusterIP Service targeting only xtdb-statefulset-1"
 	@echo "  make bench-follower-svc-teardown   - Remove the follower-only Service"
 	@echo "  Overrides: MODE=batched|sequential TOTAL_ROWS=... ROWS_PER_TXN=... WARMUP_TXNS=..."
@@ -932,9 +934,11 @@ chaos-teardown:
 ECR_BENCH_JAVA_REPO  ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-java  --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
 ECR_BENCH_JS_REPO    ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-js    --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
 ECR_BENCH_KAFKA_REPO ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-kafka --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
+ECR_BENCH_CDC_REPO   ?= $(shell aws ecr describe-repositories --repository-names xtdb-fhir-bench-cdc   --query 'repositories[0].repositoryUri' --output text --region eu-west-1 --no-cli-pager 2>/dev/null || echo "NOT_SET")
 BENCH_JAVA_TAG       ?= latest
 BENCH_JS_TAG         ?= latest
 BENCH_KAFKA_TAG      ?= latest
+BENCH_CDC_TAG        ?= latest
 
 # Benchmark parameters (same defaults on both runners)
 MODE                    ?= batched
@@ -954,9 +958,14 @@ TOTAL_MSGS              ?= 500000
 KAFKA_BOOTSTRAP         ?= kafka-kafka-bootstrap.$(NAMESPACE).svc.cluster.local:9092
 SOURCE_TOPIC            ?= xtdb-source-events
 
+# CDC source benchmark parameters (bench-cdc-*); TOTAL_ROWS and ROWS_PER_TXN
+# above are shared with the ingestion benchmarks.
+PG_HOST                 ?= postgresql.$(NAMESPACE).svc.cluster.local
+
 .PHONY: bench-java-build  bench-java-push  bench-java-run  bench-java-logs  bench-java-teardown \
         bench-js-build    bench-js-push    bench-js-run    bench-js-logs    bench-js-teardown \
         bench-kafka-build bench-kafka-push bench-kafka-run bench-kafka-logs bench-kafka-teardown \
+        bench-cdc-build   bench-cdc-push   bench-cdc-run   bench-cdc-logs   bench-cdc-teardown \
         bench-follower-svc bench-follower-svc-teardown
 
 # ---- Follower-only Service (isolates bench traffic to xtdb-statefulset-1) ----
@@ -1071,3 +1080,43 @@ bench-kafka-logs:
 
 bench-kafka-teardown:
 	@kubectl delete job bench-kafka -n $(NAMESPACE) --ignore-not-found
+
+# ---- CDC source (insert patient rows into Postgres core.patient, measure XTDB replication) ----
+# Requires the pg_cdc source to be attached (`make cdc-start`).
+# bench-cdc-run refuses to start while the Postgres-target generator is running,
+# since its writes to core.patient would skew the counts.
+bench-cdc-build:
+	@echo "Building xtdb-fhir-bench-cdc image..."
+	@cd ../benchmark/cdc-source && docker build -t xtdb-fhir-bench-cdc:$(BENCH_CDC_TAG) .
+
+bench-cdc-push: bench-cdc-build
+	@echo "Pushing xtdb-fhir-bench-cdc to ECR: $(ECR_BENCH_CDC_REPO):$(BENCH_CDC_TAG)"
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(ECR_BENCH_CDC_REPO)
+	@docker tag xtdb-fhir-bench-cdc:$(BENCH_CDC_TAG) $(ECR_BENCH_CDC_REPO):$(BENCH_CDC_TAG)
+	@docker push $(ECR_BENCH_CDC_REPO):$(BENCH_CDC_TAG)
+
+bench-cdc-run:
+	@REPLICAS=$$(kubectl get deployment xtdb-fhir-generator-pg -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0); \
+	if [ "$${REPLICAS:-0}" -gt 0 ]; then \
+	  echo "ERROR: xtdb-fhir-generator-pg is running ($$REPLICAS replica(s)) - its writes would skew the patient counts."; \
+	  echo "Stop it first: make pggen-teardown"; \
+	  exit 1; \
+	fi
+	@echo "Running bench-cdc Job (total_rows=$(TOTAL_ROWS) rows_per_txn=$(ROWS_PER_TXN))..."
+	@kubectl delete job bench-cdc -n $(NAMESPACE) --ignore-not-found
+	@sed -e 's|IMAGE_PLACEHOLDER|$(ECR_BENCH_CDC_REPO):$(BENCH_CDC_TAG)|g' \
+	     -e 's|PG_HOST_PLACEHOLDER|$(PG_HOST)|g' \
+	     -e 's|TOTAL_ROWS_PLACEHOLDER|$(TOTAL_ROWS)|g' \
+	     -e 's|ROWS_PER_TXN_PLACEHOLDER|$(ROWS_PER_TXN)|g' \
+	     -e 's|XTDB_HOST_PLACEHOLDER|$(XTDB_HOST)|g' \
+	     benchmark-cdc-job.yaml | kubectl apply -f - -n $(NAMESPACE)
+	@echo "Waiting for pod to start..."
+	@until kubectl get pod -l app=bench-cdc -n $(NAMESPACE) -o name 2>/dev/null | grep -q .; do sleep 1; done
+	@kubectl wait --for=condition=Ready pod -l app=bench-cdc -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
+	@kubectl logs -f -l app=bench-cdc -n $(NAMESPACE)
+
+bench-cdc-logs:
+	@kubectl logs -f -l app=bench-cdc -n $(NAMESPACE)
+
+bench-cdc-teardown:
+	@kubectl delete job bench-cdc -n $(NAMESPACE) --ignore-not-found
