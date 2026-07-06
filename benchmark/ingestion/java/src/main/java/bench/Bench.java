@@ -52,7 +52,13 @@ public final class Bench {
         System.out.printf("mode=%s row_shape=%s total_rows=%d rows_per_txn=%d warmup_txns=%d async_tx=%s%n",
             mode, rowShape, totalRows, rowsPerTxn, warmupTxns, asyncTx);
 
-        try (Connection conn = DriverManager.getConnection(url, props)) {
+        // Baseline/drain counts go over a dedicated connection: XTDB queries on
+        // a connection that has submitted transactions await that session's
+        // last tx (read-your-writes), which under an async backlog exceeds the
+        // server's await timeout. A write-free connection sees the currently
+        // indexed state immediately, like the kafka/CDC benches' pollers.
+        try (Connection conn = DriverManager.getConnection(url, props);
+             Connection poll = DriverManager.getConnection(url, props)) {
             // Manage transaction boundaries explicitly so the XTDB-specific
             // `(async=true)` option can ride on BEGIN when requested. The
             // driver must stay in autoCommit=true, otherwise pgJDBC injects
@@ -77,7 +83,7 @@ public final class Bench {
 
             long wallMeasuredStart = 0L;
 
-            long baseline = countRows(conn, rowShape);
+            long baseline = countRows(poll, rowShape);
             System.out.printf("baseline row count: %d%n", baseline);
 
             Statement txStmt = conn.createStatement();
@@ -144,6 +150,10 @@ public final class Bench {
             int measuredRows = measuredCount * rowsPerTxn;
             double secs = (wallMeasuredEnd - wallMeasuredStart) / 1e9;
 
+            // Print the client-side stats before draining so a drain failure
+            // can't lose the submission measurements.
+            printStats(mode, measuredRows, secs, rowsPerTxn, totalNs, buildNs, waitNs, commitNs);
+
             // Confirm every row actually landed. With ASYNC_TX=true the COMMIT
             // ack does not imply durability/visibility, so poll the count like
             // the kafka/CDC benches do; on sync runs the drain should be ~0.
@@ -153,7 +163,7 @@ public final class Bench {
             long lastLog = wallMeasuredEnd;
             long lastCount = baseline;
             long count;
-            while ((count = countRows(conn, rowShape)) < target) {
+            while ((count = countRows(poll, rowShape)) < target) {
                 long now = System.nanoTime();
                 if (now > deadline) {
                     System.out.printf("TIMED OUT after %d s: %d/%d rows visible%n",
@@ -169,8 +179,6 @@ public final class Bench {
                 Thread.sleep(1000);
             }
             long allVisible = System.nanoTime();
-
-            printStats(mode, measuredRows, secs, rowsPerTxn, totalNs, buildNs, waitNs, commitNs);
 
             double submitSecs = (wallMeasuredEnd - submitStart) / 1e9;
             double drainSecs = (allVisible - wallMeasuredEnd) / 1e9;
