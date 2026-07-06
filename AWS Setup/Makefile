@@ -990,7 +990,15 @@ bench-java-push: bench-java-build
 	@docker tag xtdb-fhir-bench-java:$(BENCH_JAVA_TAG) $(ECR_BENCH_JAVA_REPO):$(BENCH_JAVA_TAG)
 	@docker push $(ECR_BENCH_JAVA_REPO):$(BENCH_JAVA_TAG)
 
+# bench-java-run refuses to start while the XTDB-target generator is running,
+# since its concurrent writes to XTDB would skew the ingestion numbers.
 bench-java-run:
+	@REPLICAS=$$(kubectl get deployment xtdb-fhir-generator -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0); \
+	if [ "$${REPLICAS:-0}" -gt 0 ]; then \
+	  echo "ERROR: xtdb-fhir-generator is running ($$REPLICAS replica(s)) - its writes would skew the ingestion numbers."; \
+	  echo "Stop it first: make gen-teardown"; \
+	  exit 1; \
+	fi
 	@echo "Running bench-java Job (mode=$(MODE) total=$(TOTAL_ROWS) batch=$(ROWS_PER_TXN))..."
 	@kubectl delete job bench-java -n $(NAMESPACE) --ignore-not-found
 	@sed -e 's|IMAGE_PLACEHOLDER|$(ECR_BENCH_JAVA_REPO):$(BENCH_JAVA_TAG)|g' \
