@@ -3,6 +3,7 @@ package bench;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -26,6 +27,7 @@ public final class Bench {
         boolean rewrite      = Boolean.parseBoolean(env("REWRITE_BATCHED_INSERTS", "false"));
         boolean asyncTx      = Boolean.parseBoolean(env("ASYNC_TX", "false"));
         String rowShape      = env("ROW_SHAPE", "patient");
+        long   timeoutSecs   = Long.parseLong(env("DRAIN_TIMEOUT_SECS", "3600"));
 
         if (!mode.equals("batched") && !mode.equals("sequential")) {
             throw new IllegalArgumentException("MODE must be 'batched' or 'sequential', got: " + mode);
@@ -75,8 +77,12 @@ public final class Bench {
 
             long wallMeasuredStart = 0L;
 
+            long baseline = countRows(conn, rowShape);
+            System.out.printf("baseline row count: %d%n", baseline);
+
             Statement txStmt = conn.createStatement();
 
+            long submitStart = System.nanoTime();
             for (int t = 0; t < numTxns; t++) {
                 if (t == warmupTxns) {
                     wallMeasuredStart = System.nanoTime();
@@ -138,7 +144,60 @@ public final class Bench {
             int measuredRows = measuredCount * rowsPerTxn;
             double secs = (wallMeasuredEnd - wallMeasuredStart) / 1e9;
 
+            // Confirm every row actually landed. With ASYNC_TX=true the COMMIT
+            // ack does not imply durability/visibility, so poll the count like
+            // the kafka/CDC benches do; on sync runs the drain should be ~0.
+            long insertedRows = (long) numTxns * rowsPerTxn;
+            long target = baseline + insertedRows;
+            long deadline = wallMeasuredEnd + timeoutSecs * 1_000_000_000L;
+            long lastLog = wallMeasuredEnd;
+            long lastCount = baseline;
+            long count;
+            while ((count = countRows(conn, rowShape)) < target) {
+                long now = System.nanoTime();
+                if (now > deadline) {
+                    System.out.printf("TIMED OUT after %d s: %d/%d rows visible%n",
+                        timeoutSecs, count - baseline, insertedRows);
+                    System.exit(2);
+                }
+                if (now - lastLog >= 10_000_000_000L) {
+                    System.out.printf("visible %d/%d (%.1f rows/sec)%n",
+                        count - baseline, insertedRows, (count - lastCount) / ((now - lastLog) / 1e9));
+                    lastLog = now;
+                    lastCount = count;
+                }
+                Thread.sleep(1000);
+            }
+            long allVisible = System.nanoTime();
+
             printStats(mode, measuredRows, secs, rowsPerTxn, totalNs, buildNs, waitNs, commitNs);
+
+            double submitSecs = (wallMeasuredEnd - submitStart) / 1e9;
+            double drainSecs = (allVisible - wallMeasuredEnd) / 1e9;
+            double endToEndSecs = (allVisible - submitStart) / 1e9;
+            System.out.println();
+            System.out.printf("submitted rows      : %d (incl. warmup)%n", insertedRows);
+            System.out.printf("submission seconds  : %.3f (first txn -> last commit ack)%n", submitSecs);
+            System.out.printf("drain seconds       : %.3f (last commit ack -> all rows visible)%n", drainSecs);
+            System.out.printf("end-to-end seconds  : %.3f (first txn -> all rows visible)%n", endToEndSecs);
+            System.out.printf("end-to-end rows/sec : %.1f%n", insertedRows / endToEndSecs);
+        }
+    }
+
+    // The payload shape sets _valid_to to now + 1 minute, so its rows expire
+    // from a plain COUNT(*) mid-run — count across all valid time instead.
+    // Treat "table not found" as 0: the table only exists after the first row.
+    private static long countRows(Connection conn, String rowShape) throws SQLException {
+        String query = rowShape.equals("patient")
+            ? "SELECT COUNT(*) c FROM patient"
+            : "SELECT COUNT(*) c FROM bench FOR ALL VALID_TIME";
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(query)) {
+            rs.next();
+            return rs.getLong(1);
+        } catch (SQLException e) {
+            if (e.getMessage() != null && e.getMessage().toLowerCase().contains("table")) return 0L;
+            throw e;
         }
     }
 

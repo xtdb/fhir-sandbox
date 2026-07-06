@@ -32,6 +32,12 @@ The Java client supports two row shapes via `ROW_SHAPE`:
 
 The Node client only implements the `payload` shape.
 
+After the last commit the Java client polls `COUNT(*)` (across all valid time
+for the `payload` shape, whose rows expire) until every submitted row is
+visible, and reports submission/drain/end-to-end times. On sync runs the drain
+is ~0; with `ASYNC_TX=true` the commit ack does not imply visibility, so the
+end-to-end figure is the one comparable with the kafka/CDC source benchmarks.
+
 ## Configuration (env vars)
 
 | Variable                   | Default                                              | Notes                         |
@@ -46,6 +52,7 @@ The Node client only implements the `payload` shape.
 | `WARMUP_TXNS`              | `5`                                                  | Discarded from stats          |
 | `REWRITE_BATCHED_INSERTS`  | `false`                                              | Java only                     |
 | `ROW_SHAPE`                | `patient`                                            | Java only, `patient` \| `payload` |
+| `DRAIN_TIMEOUT_SECS`       | `3600`                                               | Java only                     |
 
 The programs print rows/sec, txn/sec, and per-transaction mean/p50/p99 latency.
 
