@@ -21,9 +21,16 @@ batch into a single `INSERT ... VALUES (...), (...), ...`.
 ## Schema
 
 XTDB infers schema from the insert statement, so there is no `CREATE TABLE`.
-Inserts use the `bench` table with columns `_id` (UUID) and `payload` (TEXT).
-`_valid_from` is left to default (transaction time). Each row is inserted with
-`_valid_to` set to *now + 1 minute*, computed client-side once per transaction.
+The Java client supports two row shapes via `ROW_SHAPE`:
+
+- `patient` (default): inserts into the `patient` table with `_id` (36-char
+  string), `resource_type`, `status` and `last_updated` — the same row the CDC
+  and Kafka source benchmarks land, so all three benchmarks move the same data.
+- `payload`: the original shape — `bench` table with `_id` (UUID) and `payload`
+  (TEXT), `_valid_from` left to default (transaction time) and `_valid_to` set
+  to *now + 1 minute*.
+
+The Node client only implements the `payload` shape.
 
 ## Configuration (env vars)
 
@@ -38,6 +45,7 @@ Inserts use the `bench` table with columns `_id` (UUID) and `payload` (TEXT).
 | `ROWS_PER_TXN`             | `1000`                                               |                               |
 | `WARMUP_TXNS`              | `5`                                                  | Discarded from stats          |
 | `REWRITE_BATCHED_INSERTS`  | `false`                                              | Java only                     |
+| `ROW_SHAPE`                | `patient`                                            | Java only, `patient` \| `payload` |
 
 The programs print rows/sec, txn/sec, and per-transaction mean/p50/p99 latency.
 

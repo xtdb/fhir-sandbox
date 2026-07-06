@@ -3,6 +3,7 @@ package bench;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,9 +25,13 @@ public final class Bench {
         int    warmupTxns    = Integer.parseInt(env("WARMUP_TXNS", "5"));
         boolean rewrite      = Boolean.parseBoolean(env("REWRITE_BATCHED_INSERTS", "false"));
         boolean asyncTx      = Boolean.parseBoolean(env("ASYNC_TX", "false"));
+        String rowShape      = env("ROW_SHAPE", "patient");
 
         if (!mode.equals("batched") && !mode.equals("sequential")) {
             throw new IllegalArgumentException("MODE must be 'batched' or 'sequential', got: " + mode);
+        }
+        if (!rowShape.equals("patient") && !rowShape.equals("payload")) {
+            throw new IllegalArgumentException("ROW_SHAPE must be 'patient' or 'payload', got: " + rowShape);
         }
         int numTxns = totalRows / rowsPerTxn;
         if (numTxns <= warmupTxns) {
@@ -42,8 +47,8 @@ public final class Bench {
 
         System.out.printf("=== bench-jdbc ===%n");
         System.out.printf("url=%s%n", url);
-        System.out.printf("mode=%s total_rows=%d rows_per_txn=%d warmup_txns=%d async_tx=%s%n",
-            mode, totalRows, rowsPerTxn, warmupTxns, asyncTx);
+        System.out.printf("mode=%s row_shape=%s total_rows=%d rows_per_txn=%d warmup_txns=%d async_tx=%s%n",
+            mode, rowShape, totalRows, rowsPerTxn, warmupTxns, asyncTx);
 
         try (Connection conn = DriverManager.getConnection(url, props)) {
             // Manage transaction boundaries explicitly so the XTDB-specific
@@ -56,7 +61,12 @@ public final class Bench {
                 ? "BEGIN TRANSACTION READ WRITE WITH (ASYNC = TRUE)"
                 : "BEGIN TRANSACTION READ WRITE";
 
-            String sql = "INSERT INTO bench (_id, payload, _valid_to) VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL 'PT1M')";
+            // 'patient' mirrors the row the CDC and kafka source benches land so
+            // all three benchmarks move the same data; 'payload' is the original
+            // bench-table shape (native UUID _id, _valid_to bound).
+            String sql = rowShape.equals("patient")
+                ? "INSERT INTO patient (_id, resource_type, status, last_updated) VALUES (?, 'patient', 'bench', CURRENT_TIMESTAMP)"
+                : "INSERT INTO bench (_id, payload, _valid_to) VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL 'PT1M')";
             int measuredCount = numTxns - warmupTxns;
             List<Long> totalNs  = new ArrayList<>(measuredCount);
             List<Long> buildNs  = new ArrayList<>(measuredCount);
@@ -84,8 +94,7 @@ public final class Bench {
                     if (mode.equals("batched")) {
                         long b0 = System.nanoTime();
                         for (int i = 0; i < rowsPerTxn; i++) {
-                            ps.setObject(1, UUID.randomUUID());
-                            ps.setString(2, "payload-" + t + "-" + i);
+                            bindRow(ps, rowShape, t, i);
                             ps.addBatch();
                         }
                         long b1 = System.nanoTime();
@@ -96,8 +105,7 @@ public final class Bench {
                     } else {
                         for (int i = 0; i < rowsPerTxn; i++) {
                             long b0 = System.nanoTime();
-                            ps.setObject(1, UUID.randomUUID());
-                            ps.setString(2, "payload-" + t + "-" + i);
+                            bindRow(ps, rowShape, t, i);
                             long b1 = System.nanoTime();
                             ps.executeUpdate();
                             long w1 = System.nanoTime();
@@ -131,6 +139,17 @@ public final class Bench {
             double secs = (wallMeasuredEnd - wallMeasuredStart) / 1e9;
 
             printStats(mode, measuredRows, secs, rowsPerTxn, totalNs, buildNs, waitNs, commitNs);
+        }
+    }
+
+    // The patient shape binds _id as a 36-char string (same as the CDC bench's
+    // inserts); the payload shape keeps the original native-UUID binding.
+    private static void bindRow(PreparedStatement ps, String rowShape, int t, int i) throws SQLException {
+        if (rowShape.equals("patient")) {
+            ps.setString(1, UUID.randomUUID().toString());
+        } else {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setString(2, "payload-" + t + "-" + i);
         }
     }
 

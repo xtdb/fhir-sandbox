@@ -41,6 +41,8 @@ spec:
               value: "REWRITE_BATCHED_INSERTS_PLACEHOLDER"
             - name: ASYNC_TX
               value: "ASYNC_TX_PLACEHOLDER"
+            - name: ROW_SHAPE
+              value: "ROW_SHAPE_PLACEHOLDER"
             - name: JAVA_TOOL_OPTIONS
               value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
           resources:

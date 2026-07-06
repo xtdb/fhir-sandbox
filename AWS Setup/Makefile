@@ -150,6 +150,7 @@ help:
 	@echo "  make bench-follower-svc-teardown   - Remove the follower-only Service"
 	@echo "  Overrides: MODE=batched|sequential TOTAL_ROWS=... ROWS_PER_TXN=... WARMUP_TXNS=..."
 	@echo "             ASYNC_TX=true|false (Java only; explicit 'BEGIN (async=true)' per txn)"
+	@echo "             ROW_SHAPE=patient|payload (Java only; 'patient' matches the CDC/kafka source benches)"
 	@echo "             XTDB_HOST=xtdb-service-follower.xtdb-deployment.svc.cluster.local (target follower only)"
 	@echo ""
 	@echo "Current environment: $(if $(CURRENT_ENV),$(CURRENT_ENV),not set)"
@@ -949,6 +950,9 @@ REWRITE_BATCHED_INSERTS ?= false
 # When true, Java bench issues explicit `BEGIN (async=true)` / `COMMIT` per txn
 # so XTDB does not wait for Kafka ack on commit (lower commit latency).
 ASYNC_TX                ?= false
+# 'patient' inserts the same row shape as the CDC/kafka source benches
+# (fair cross-benchmark comparison); 'payload' is the original bench-table shape.
+ROW_SHAPE               ?= patient
 # Override to point at a specific node, e.g. the follower-only service:
 #   make bench-js-run XTDB_HOST=xtdb-service-follower.xtdb-deployment.svc.cluster.local
 XTDB_HOST               ?= xtdb-service.xtdb-deployment.svc.cluster.local
@@ -997,6 +1001,7 @@ bench-java-run:
 	     -e 's|WARMUP_TXNS_PLACEHOLDER|$(WARMUP_TXNS)|g' \
 	     -e 's|REWRITE_BATCHED_INSERTS_PLACEHOLDER|$(REWRITE_BATCHED_INSERTS)|g' \
 	     -e 's|ASYNC_TX_PLACEHOLDER|$(ASYNC_TX)|g' \
+	     -e 's|ROW_SHAPE_PLACEHOLDER|$(ROW_SHAPE)|g' \
 	     benchmark-java-job.yaml | kubectl apply -f - -n $(NAMESPACE)
 	@echo "Waiting for pod to start..."
 	@until kubectl get pod -l app=bench-java -n $(NAMESPACE) -o name 2>/dev/null | grep -q .; do sleep 1; done
