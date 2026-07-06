@@ -6,10 +6,10 @@ patient documents from the `xtdb-source-events` topic into the `patient` table.
 One mode, one number:
 
 1. Records the baseline `SELECT COUNT(*) FROM patient` on `kafka_src`.
-2. Produces `TOTAL_MSGS` patient JSON docs to the topic flat-out — a canned
-   Synthea patient (`src/main/resources/patient-template.json`, ~3.5 KB, the
-   same snake-cased shape the generator's Kafka sink emits) with a fresh UUID
-   `_id` per message, keyed by `_id`.
+2. Produces `TOTAL_MSGS` patient JSON docs to the topic flat-out — a minimal
+   patient doc (`src/main/resources/patient-template.json`, ~100 bytes, the
+   same `_id`/`resource_type`/`status`/`last_updated` row shape the CDC source
+   benchmark inserts) with a fresh UUID `_id` per message, keyed by `_id`.
 3. Polls the count once a second until baseline + `TOTAL_MSGS` rows are
    visible, logging progress every 10s.
 

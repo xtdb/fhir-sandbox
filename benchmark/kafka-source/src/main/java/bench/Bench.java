@@ -18,8 +18,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Produces TOTAL_MSGS patient JSON docs (canned Synthea template, fresh UUID _id
- * per message, keyed by _id) to the Kafka source topic flat-out, then polls
+ * Produces TOTAL_MSGS patient JSON docs (minimal template matching the CDC
+ * benchmark's row shape, fresh UUID _id per message, keyed by _id) to the
+ * Kafka source topic flat-out, then polls
  * SELECT COUNT(*) FROM patient on the attached kafka_src database until all of
  * them are visible. Reports produce time, drain time and indexed rows/sec.
  */
