@@ -37,7 +37,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
         pg-dep pg-logs pg-stat pg-teardown pg-con \
         cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-reattach cdc-detach \
         cdc-test-insert cdc-test-query \
-        kafka-src-start kafka-src-stop kafka-src-attach kafka-src-detach \
+        kafka-src-start kafka-src-stop kafka-src-attach kafka-src-reattach kafka-src-detach \
         kafka-src-create-topic kafka-src-delete-topic kafka-src-test-insert kafka-src-test-query \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown gen-tune cloud-logs \
@@ -551,6 +551,16 @@ kafka-src-attach:
 	@UUID=$$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || cat /proc/sys/kernel/random/uuid); \
 	echo "Attaching kafka_src (storage suffix: $$UUID)..."; \
 	$(call xtdb-run,sed "s/__UUID__/$$UUID/g" sql/attach-kafka-source.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1)
+
+# Re-attach an existing kafka_src db in XTDB by its UUID (XTDB-only, no topic
+# changes). Validates that the kafka-src-<UUID> prefix exists in S3 before
+# attaching, so you only re-attach a db whose durable object-store data is still
+# present. Usage: make kafka-src-reattach UUID=<uuid>
+kafka-src-reattach:
+	@test -n "$(UUID)" || { echo "Error: UUID is required, e.g. make kafka-src-reattach UUID=<uuid>"; exit 1; }
+	@aws s3 ls s3://$(S3_BUCKET)/kafka-src-$(UUID)/ >/dev/null 2>&1 || { echo "Error: no S3 data found at s3://$(S3_BUCKET)/kafka-src-$(UUID)/ — nothing to re-attach"; exit 1; }
+	@echo "Re-attaching kafka_src (suffix: $(UUID))..."
+	@$(call xtdb-run,sed "s/__UUID__/$(UUID)/g" sql/attach-kafka-source.sql | psql "host=localhost port=5432 user=xtdb" -v ON_ERROR_STOP=1)
 
 # Detach kafka_src in XTDB
 kafka-src-detach:
