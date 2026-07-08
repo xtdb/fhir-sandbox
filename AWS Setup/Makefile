@@ -581,9 +581,10 @@ kafka-src-test-insert:
 	@echo "Producing a test patient into the Kafka source topic..."
 	@POD=$$(kubectl get pod -n $(NAMESPACE) -l strimzi.io/cluster=kafka -o jsonpath='{.items[0].metadata.name}'); \
 	MARKER="patient-smoke-$$(date +%s)"; \
-	echo "{\"_id\":\"$$MARKER\"}" \
+	echo "$$MARKER|{\"_id\":\"$$MARKER\"}" \
 	  | kubectl exec -i $$POD -n $(NAMESPACE) -- /opt/kafka/bin/kafka-console-producer.sh \
-	      --bootstrap-server localhost:9092 --topic xtdb-source-events; \
+	      --bootstrap-server localhost:9092 --topic xtdb-source-events \
+	      --property parse.key=true --property key.separator='|'; \
 	echo "Produced patient $$MARKER."
 
 # Smoke test: query XTDB's attached kafka_src to confirm the event indexed
