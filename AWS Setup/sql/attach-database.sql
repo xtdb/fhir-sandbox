@@ -7,6 +7,7 @@ log: !Kafka
   cluster: "kafkaCluster"
   topic: "xtdb-pgcdc-sourceLog-__UUID__"
   replicaTopic: "xtdb-pgcdc-replicaLog-__UUID__"
+  epoch: 1
 storage: !Remote
   objectStore: !S3
     bucket: "xtdb-bucket"
