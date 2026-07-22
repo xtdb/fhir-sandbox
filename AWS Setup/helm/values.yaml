@@ -5,7 +5,7 @@ nodeCount: 3  # Dev: use 1 node via values-dev.yaml
 
 image:
   repository: ghcr.io/xtdb/xtdb-aws
-  tag: nightly-20260714
+  tag: 2.2.0-rc0
   pullPolicy: Always
 
 nodeSelector:
