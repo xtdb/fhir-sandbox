@@ -22,7 +22,6 @@ xtdbConfig:
     sizeLimit: "35Gi"
 
   env:
-    XTDB_SINGLE_WRITER: true
     XTDB_LOG_FORMAT: json
 
 #    XTDB_LOG_JSON_TEMPLATE: classpath:xtdb/logging/AzureMonitorLayout.json
