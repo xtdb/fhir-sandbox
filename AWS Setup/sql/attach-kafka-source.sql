@@ -8,6 +8,7 @@ ATTACH DATABASE kafka_src WITH $$
 log: !Kafka
   cluster: kafkaCluster
   topic: "xtdb-kafkasrc-replicaLog-__UUID__"
+  termEpoch: 1
 storage: !Remote
   objectStore: !S3
     bucket: "xtdb-bucket"
