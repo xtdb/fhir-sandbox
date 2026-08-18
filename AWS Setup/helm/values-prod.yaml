@@ -39,22 +39,22 @@ xtdbConfig:
     XTDB_LOGGING_LEVEL_INDEXER: debug
 #    XTDB_LOGGING_LEVEL_PGWIRE: "trace"
 
-# Disable startup probe restarts (for debugging)
 startupProbe:
   httpGet:
     path: /healthz/started
     port: 8080
-  initialDelaySeconds: 60
+  # 2 minute initial delay to allow XTDB system to startup before awaiting index catchup
+  initialDelaySeconds: 120
+  # Allow up to fifteen minutes for catchup of initial indexes, checking every 15 seconds
   periodSeconds: 15
-  failureThreshold: 9999
-  timeoutSeconds: 10
+  failureThreshold: 60
 
-# Disable liveness probe restarts (for debugging)
+# The liveness (and readiness) probes are disabled by Kubernetes until the startup probe has succeeded.
 livenessProbe:
   httpGet:
     path: /healthz/alive
     port: 8080
-  initialDelaySeconds: 30
-  periodSeconds: 15
-  failureThreshold: 9999
-  timeoutSeconds: 10
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  failureThreshold: 6
+  timeoutSeconds: 5
