@@ -40,7 +40,7 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
         kafka-src-start kafka-src-stop kafka-src-attach kafka-src-reattach kafka-src-detach \
         kafka-src-create-topic kafka-src-delete-topic kafka-src-test-insert kafka-src-test-query \
         kafka-src-count \
-        app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs \
+        app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs xtdb-logs-dump \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown gen-tune cloud-logs \
         pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown pggen-tune \
         kafkagen-dep kafkagen-logs kafkagen-stat kafkagen-setup kafkagen-teardown kafkagen-tune \
@@ -102,6 +102,7 @@ help:
 	@echo "  make xtdb-setup     - Full xtdb-aws deployment (build + push + deploy)"
 	@echo "  make xtdb-upgrade   - Helm upgrade an existing xtdb-aws release (no install)"
 	@echo "  make xtdb-logs      - Tail logs for a chosen xtdb-statefulset member"
+	@echo "  make xtdb-logs-dump - Dump all xtdb-statefulset pod logs to a timestamped results/ folder"
 	@echo ""
 	@echo "Generator deployment (Synthea data generator):"
 	@echo "  make gen-build      - Build xtdb-fhir-generator Docker image"
@@ -680,6 +681,17 @@ xtdb-logs:
 	@read -p "Which xtdb-statefulset member? [0-$$(($(shell kubectl get statefulset xtdb-statefulset -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)-1))]: " ordinal; \
 	echo "Tailing logs for xtdb-statefulset-$$ordinal..."; \
 	kubectl logs -f xtdb-statefulset-$$ordinal -n $(NAMESPACE)
+
+# Dump full logs for every xtdb-statefulset member to a timestamped folder under results/
+xtdb-logs-dump:
+	@REPLICAS=$$(kubectl get statefulset xtdb-statefulset -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1); \
+	DIR=results/xtdb-logs-$$(date +%Y%m%d-%H%M%S); \
+	mkdir -p $$DIR; \
+	for i in $$(seq 0 $$(($$REPLICAS - 1))); do \
+		echo "Dumping logs for xtdb-statefulset-$$i..."; \
+		kubectl logs xtdb-statefulset-$$i -n $(NAMESPACE) > $$DIR/xtdb-statefulset-$$i.log; \
+	done; \
+	echo "Logs saved to $$DIR"
 
 # Full xtdb-aws deployment (build + push + deploy)
 xtdb-setup: xtdb-push xtdb
