@@ -33,7 +33,7 @@ CHAOS_USER ?= $(shell kubectl auth whoami -o jsonpath='{.status.userInfo.usernam
 # Current environment (read from file if exists)
 CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 
-.PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods bucket \
+.PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods xtdb-health bucket \
         pg-dep pg-logs pg-stat pg-teardown pg-con \
         cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-reattach cdc-detach \
         cdc-test-insert cdc-test-query \
@@ -59,6 +59,7 @@ help:
 	@echo "  make scale-up       - Scale XTDB nodes to 3, generator and guardrails to 1"
 	@echo "  make con            - Port-forward and connect to XTDB via psql"
 	@echo "  make pods           - Show pods in the namespace"
+	@echo "  make xtdb-health    - Call /healthz/started and /healthz/alive on each xtdb-statefulset pod"
 	@echo "  make bucket         - Show S3 bucket size (objects and GB)"
 	@echo "  make cloud-logs     - Tail CloudWatch logs (all cluster pods)"
 	@echo ""
@@ -620,6 +621,25 @@ xtdb-host:
 # Show pods in namespace
 pods:
 	@kubectl get pods --namespace $(NAMESPACE)
+
+# Call /healthz/started and /healthz/alive directly on every xtdb-statefulset
+# pod (port-forwarding to each pod in turn) and print the raw response.
+xtdb-health:
+	@REPLICAS=$$(kubectl get statefulset xtdb-statefulset -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1); \
+	for i in $$(seq 0 $$(($$REPLICAS - 1))); do \
+		POD=xtdb-statefulset-$$i; \
+		echo "=== $$POD ==="; \
+		kubectl port-forward pod/$$POD -n $(NAMESPACE) 18080:8080 >/dev/null 2>&1 & \
+		PF_PID=$$!; \
+		sleep 2; \
+		echo "-- /healthz/started --"; \
+		curl -s -w ' [HTTP %{http_code}]\n' http://localhost:18080/healthz/started || echo "  (unreachable)"; \
+		echo "-- /healthz/alive --"; \
+		curl -s -w ' [HTTP %{http_code}]\n' http://localhost:18080/healthz/alive || echo "  (unreachable)"; \
+		kill $$PF_PID 2>/dev/null || true; \
+		wait $$PF_PID 2>/dev/null; \
+		echo; \
+	done
 
 # Show S3 bucket size (object count and size in GB)
 bucket:
