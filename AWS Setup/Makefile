@@ -89,7 +89,7 @@ help:
 	@echo "  make kafka-src-stop  - Detach kafka_src + delete the source topic (stops indexing)"
 	@echo "  make kafka-src-test-insert - Produce a test JSON event into the source topic"
 	@echo "  make kafka-src-test-query  - Query XTDB kafka_src patient to confirm it indexed"
-	@echo "  make kafka-src-count - EXPLAIN ANALYZE SELECT COUNT(*) FROM patient on kafka_src"
+	@echo "  make kafka-src-count - EXPLAIN ANALYZE SELECT COUNT(*) FROM patient on kafka_src, saved as CSV to results/"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -594,10 +594,13 @@ kafka-src-test-query:
 	@echo "Querying the patient table on the XTDB kafka_src database..."
 	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 -f sql/kafka-src-test-query.sql)
 
-# EXPLAIN ANALYZE the patient count on the attached kafka_src database
+# EXPLAIN ANALYZE the patient count on the attached kafka_src database, saved to a timestamped CSV
 kafka-src-count:
 	@echo "Running EXPLAIN ANALYZE SELECT COUNT(*) FROM patient on kafka_src..."
-	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;")
+	@mkdir -p results
+	@OUT=results/kafka-src-count-$$(date +%Y%m%d-%H%M%S).csv; \
+	echo "Saving output to $$OUT"; \
+	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 --csv -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;" | tee $$OUT)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:

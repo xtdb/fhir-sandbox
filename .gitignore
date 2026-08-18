@@ -22,3 +22,5 @@ logs
 # Personal settings
 /AWS Setup/terraform/.envrc
 /AWS Setup/.envrc
+
+/AWS Setup/results/
