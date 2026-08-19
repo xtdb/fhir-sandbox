@@ -532,7 +532,7 @@ cdc-test-insert:
 # Smoke test: query XTDB's attached pg_cdc to confirm the row replicated
 cdc-test-query:
 	@echo "Querying core.patient on the XTDB pg_cdc database..."
-	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql)
+	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -c "\timing on" -f sql/cdc-test-query.sql)
 
 # EXPLAIN ANALYZE the patient count on the attached pg_cdc database, saved to a timestamped CSV
 cdc-count:
@@ -540,7 +540,7 @@ cdc-count:
 	@mkdir -p results
 	@OUT=results/cdc-count-$$(date +%Y%m%d-%H%M%S).csv; \
 	echo "Saving output to $$OUT"; \
-	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 --csv -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM core.patient;" | tee $$OUT)
+	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 --csv -c "\timing on" -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM core.patient;" | tee $$OUT)
 
 # ===========================================
 # Kafka external source (Kafka topic -> XTDB ATTACH DATABASE via !KafkaConnect)
@@ -606,7 +606,7 @@ kafka-src-test-insert:
 # Smoke test: query XTDB's attached kafka_src to confirm the event indexed
 kafka-src-test-query:
 	@echo "Querying the patient table on the XTDB kafka_src database..."
-	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 -f sql/kafka-src-test-query.sql)
+	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 -c "\timing on" -f sql/kafka-src-test-query.sql)
 
 # EXPLAIN ANALYZE the patient count on the attached kafka_src database, saved to a timestamped CSV
 kafka-src-count:
@@ -614,7 +614,7 @@ kafka-src-count:
 	@mkdir -p results
 	@OUT=results/kafka-src-count-$$(date +%Y%m%d-%H%M%S).csv; \
 	echo "Saving output to $$OUT"; \
-	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 --csv -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;" | tee $$OUT)
+	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 --csv -c "\timing on" -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;" | tee $$OUT)
 
 # EXPLAIN ANALYZE the patient count on the default xtdb database (direct writes), saved to a timestamped CSV
 xtdb-count:
@@ -622,7 +622,7 @@ xtdb-count:
 	@mkdir -p results
 	@OUT=results/xtdb-count-$$(date +%Y%m%d-%H%M%S).csv; \
 	echo "Saving output to $$OUT"; \
-	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=xtdb" -v ON_ERROR_STOP=1 --csv -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;" | tee $$OUT)
+	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=xtdb" -v ON_ERROR_STOP=1 --csv -c "\timing on" -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;" | tee $$OUT)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:
@@ -630,7 +630,9 @@ con:
 	@kubectl port-forward svc/xtdb-service --namespace $(NAMESPACE) 5432:5432 & \
 	PF_PID=$$!; \
 	sleep 2 && \
-	psql "host=localhost port=5432 user=xtdb"; \
+	PSQLRC=$$(mktemp) && echo '\timing on' > $$PSQLRC && \
+	PSQLRC=$$PSQLRC psql "host=localhost port=5432 user=xtdb"; \
+	rm -f $$PSQLRC; \
 	kill $$PF_PID 2>/dev/null || true
 
 # Get the XTDB NLB hostname (for Grafana config)
