@@ -36,10 +36,10 @@ CURRENT_ENV := $(shell cat .current-env 2>/dev/null)
 .PHONY: help setup teardown login kube nam kafka serv iam xtdb prom con pods xtdb-health bucket \
         pg-dep pg-logs pg-stat pg-teardown pg-con \
         cdc-start cdc-stop cdc-setup cdc-teardown cdc-attach cdc-reattach cdc-detach \
-        cdc-test-insert cdc-test-query \
+        cdc-test-insert cdc-test-query cdc-count \
         kafka-src-start kafka-src-stop kafka-src-attach kafka-src-reattach kafka-src-detach \
         kafka-src-create-topic kafka-src-delete-topic kafka-src-test-insert kafka-src-test-query \
-        kafka-src-count \
+        kafka-src-count xtdb-count \
         app-dep app-teardown app-logs xtdb-build xtdb-push xtdb-setup xtdb-upgrade xtdb-logs xtdb-logs-dump \
         gen-build gen-push gen-dep gen-logs gen-stat gen-setup gen-teardown gen-tune cloud-logs \
         pggen-dep pggen-logs pggen-stat pggen-setup pggen-teardown pggen-tune \
@@ -84,6 +84,7 @@ help:
 	@echo "  make cdc-reattach UUID=<uuid> - Re-attach an existing pg_cdc db in XTDB (validates pg-cdc-<uuid> exists in S3)"
 	@echo "  make cdc-test-insert - Insert a test Patient row into Postgres core.patient (CDC smoke test)"
 	@echo "  make cdc-test-query  - Query XTDB pg_cdc core.patient to confirm it replicated"
+	@echo "  make cdc-count       - EXPLAIN ANALYZE SELECT COUNT(*) FROM core.patient on pg_cdc, saved as CSV to results/"
 	@echo ""
 	@echo "Kafka external source (!KafkaConnect into the 'patient' table):"
 	@echo "  make kafka-src-start - Create the source topic + attach kafka_src in XTDB (starts indexing)"
@@ -91,6 +92,9 @@ help:
 	@echo "  make kafka-src-test-insert - Produce a test JSON event into the source topic"
 	@echo "  make kafka-src-test-query  - Query XTDB kafka_src patient to confirm it indexed"
 	@echo "  make kafka-src-count - EXPLAIN ANALYZE SELECT COUNT(*) FROM patient on kafka_src, saved as CSV to results/"
+	@echo ""
+	@echo "Direct XTDB writes (xtdb-fhir-generator into the default 'xtdb' database):"
+	@echo "  make xtdb-count      - EXPLAIN ANALYZE SELECT COUNT(*) FROM patient on xtdb, saved as CSV to results/"
 	@echo ""
 	@echo "Legacy app deployment (batch importer from ECR):"
 	@echo "  make app-dep        - Deploy xtdb-fhir batch job via Helm"
@@ -530,6 +534,14 @@ cdc-test-query:
 	@echo "Querying core.patient on the XTDB pg_cdc database..."
 	@$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 -f sql/cdc-test-query.sql)
 
+# EXPLAIN ANALYZE the patient count on the attached pg_cdc database, saved to a timestamped CSV
+cdc-count:
+	@echo "Running EXPLAIN ANALYZE SELECT COUNT(*) FROM core.patient on pg_cdc..."
+	@mkdir -p results
+	@OUT=results/cdc-count-$$(date +%Y%m%d-%H%M%S).csv; \
+	echo "Saving output to $$OUT"; \
+	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=pg_cdc" -v ON_ERROR_STOP=1 --csv -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM core.patient;" | tee $$OUT)
+
 # ===========================================
 # Kafka external source (Kafka topic -> XTDB ATTACH DATABASE via !KafkaConnect)
 # ===========================================
@@ -603,6 +615,14 @@ kafka-src-count:
 	@OUT=results/kafka-src-count-$$(date +%Y%m%d-%H%M%S).csv; \
 	echo "Saving output to $$OUT"; \
 	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=kafka_src" -v ON_ERROR_STOP=1 --csv -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;" | tee $$OUT)
+
+# EXPLAIN ANALYZE the patient count on the default xtdb database (direct writes), saved to a timestamped CSV
+xtdb-count:
+	@echo "Running EXPLAIN ANALYZE SELECT COUNT(*) FROM patient on xtdb..."
+	@mkdir -p results
+	@OUT=results/xtdb-count-$$(date +%Y%m%d-%H%M%S).csv; \
+	echo "Saving output to $$OUT"; \
+	$(call xtdb-run,psql "host=localhost port=5432 user=xtdb dbname=xtdb" -v ON_ERROR_STOP=1 --csv -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM patient;" | tee $$OUT)
 
 # Connect to XTDB via port-forward (internal NLB not accessible from outside VPC)
 con:
