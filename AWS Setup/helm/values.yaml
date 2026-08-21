@@ -135,7 +135,6 @@ startupProbe:
   httpGet:
     path: /healthz/started
     port: 8080
-  initialDelaySeconds: 60
   periodSeconds: 30
   failureThreshold: 10 
 

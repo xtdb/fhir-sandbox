@@ -43,8 +43,6 @@ startupProbe:
   httpGet:
     path: /healthz/started
     port: 8080
-  # 2 minute initial delay to allow XTDB system to startup before awaiting index catchup
-  initialDelaySeconds: 120
   # Allow up to fifteen minutes for catchup of initial indexes, checking every 15 seconds
   periodSeconds: 15
   failureThreshold: 60

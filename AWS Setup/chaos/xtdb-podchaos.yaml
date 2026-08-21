@@ -4,7 +4,7 @@ metadata:
   name: xtdb-pod-restart
   namespace: chaos-mesh
 spec:
-  schedule: "@every 10m"
+  schedule: "@every 5m"
   type: PodChaos
   podChaos:
     action: pod-kill
