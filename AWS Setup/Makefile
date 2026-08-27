@@ -106,7 +106,7 @@ help:
 	@echo "  make xtdb-push      - Build and push xtdb-aws image to ECR"
 	@echo "  make xtdb-setup     - Full xtdb-aws deployment (build + push + deploy)"
 	@echo "  make xtdb-upgrade   - Helm upgrade an existing xtdb-aws release (no install)"
-	@echo "  make xtdb-logs      - Tail logs for a chosen xtdb-statefulset member"
+	@echo "  make xtdb-logs      - Tail logs for a chosen xtdb-statefulset member (POD=<n> to skip the prompt)"
 	@echo "  make xtdb-logs-dump - Dump all xtdb-statefulset pod logs to a timestamped results/ folder"
 	@echo ""
 	@echo "Generator deployment (Synthea data generator):"
@@ -718,9 +718,14 @@ xtdb-push: xtdb-build
 	docker tag xtdb-aws:$(XTDB_AWS_TAG) $(ECR_XTDB_AWS_REPO):$(XTDB_AWS_TAG)
 	docker push $(ECR_XTDB_AWS_REPO):$(XTDB_AWS_TAG)
 
-# View logs for a chosen xtdb-statefulset member (prompts for the pod ordinal)
+# View logs for a chosen xtdb-statefulset member.
+# Usage: make xtdb-logs POD=1  (prompts for the pod ordinal if omitted)
 xtdb-logs:
-	@read -p "Which xtdb-statefulset member? [0-$$(($(shell kubectl get statefulset xtdb-statefulset -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)-1))]: " ordinal; \
+	@if [ -n "$(POD)" ]; then \
+		ordinal=$(POD); \
+	else \
+		read -p "Which xtdb-statefulset member? [0-$$(($(shell kubectl get statefulset xtdb-statefulset -n $(NAMESPACE) -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)-1))]: " ordinal; \
+	fi; \
 	echo "Tailing logs for xtdb-statefulset-$$ordinal..."; \
 	kubectl logs -f xtdb-statefulset-$$ordinal -n $(NAMESPACE)
 
