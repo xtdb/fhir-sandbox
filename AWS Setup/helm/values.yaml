@@ -5,7 +5,7 @@ nodeCount: 3  # Dev: use 1 node via values-dev.yaml
 
 image:
   repository: ghcr.io/xtdb/xtdb-aws
-  tag: g8208b94
+  tag: g5be33d1
   pullPolicy: Always
 
 nodeSelector:
@@ -90,7 +90,6 @@ xtdbConfig:
       cluster: kafkaCluster
       topic: "xtdb-log"
       epoch: 3 # Used to reset the transaction log tracking and allow recovery.
-      termEpoch: 1 # Declares that the Kafka consumer group behind leader election was recreated - bump, never lower.
 
     storage: !Remote
       objectStore: !S3
