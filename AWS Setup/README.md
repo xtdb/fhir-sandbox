@@ -127,6 +127,31 @@ the `postgresql` Secret password is injected into the XTDB pods as `PGUSER` /
 | `make cdc-test-insert` | Insert a marker Patient row into Postgres `core.patient` (CDC smoke test) |
 | `make cdc-test-query`  | Query XTDB `pg_cdc` `core.patient` to confirm the row replicated |
 
+### Recovery (disk-full / corrupted PVC)
+
+If `make pg-logs` shows `No space left on device`, wipe Postgres and redeploy
+fresh rather than resizing the PVC in place:
+
+```bash
+make cdc-detach                                                             # detach pg_cdc from XTDB (required before re-attach)
+make pg-teardown                                                            # uninstalls the chart; PVC is retained
+kubectl get pvc -n xtdb-deployment -l app.kubernetes.io/name=postgresql     # find the retained PVC name
+kubectl delete pvc -n xtdb-deployment -l app.kubernetes.io/name=postgresql  # delete it (wipes all Postgres data)
+make pg-dep                                                                 # fresh install, new empty PVC + new postgres password
+kubectl rollout restart statefulset/xtdb-statefulset -n xtdb-deployment     # pick up the new password before attaching
+make pods                                                                   # wait for xtdb-statefulset pods to be Ready
+make cdc-start                                                              # recreate the cdc database + attach a fresh pg_cdc
+kubectl rollout restart deployment/xtdb-fhir-generator-pg -n xtdb-deployment  # if pggen was running, restart it too
+```
+
+Notes:
+- Use `cdc-detach`, not `cdc-stop` — `cdc-stop` also runs `cdc-teardown`, which
+  needs a live Postgres to drop the `cdc` database.
+- `pg-dep` generates a new random `postgres` password; XTDB and the pggen
+  generator only read it at pod startup, so both need a restart to pick it up.
+- Destructive — any un-replicated Postgres data and the old `pg_cdc` database
+  in XTDB are gone. `cdc-start` mints a fresh UUID.
+
 ### CDC replication (`cdc-start` / `cdc-stop`)
 
 CDC has two sides, both driven from `.sql` files under [`sql/`](./sql/):
