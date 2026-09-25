@@ -126,6 +126,7 @@ xtdbConfig:
   env:
     # (ENV_VAR_NAME: Value)
     XTDB_LOGGING_LEVEL: "info" # See https://docs.xtdb.com/ops/troubleshooting/overview.html
+    XTDB_PIPELINED_REPLICA_APPENDS: "1" # Temporary rollout switch, presence is what's read - see xtdb/xtdb#6113 before downgrading.
 
   # Extra EnvFrom sources
   envFrom: []
