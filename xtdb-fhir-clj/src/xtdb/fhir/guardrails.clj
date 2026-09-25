@@ -1,7 +1,6 @@
 (ns xtdb.fhir.guardrails
   (:gen-class)
   (:require [mount.core :as mount :refer [defstate]]
-            [next.jdbc :as jdbc]
             [xtdb.api :as xt]
             [clojure.tools.logging :as log]
             [environ.core :refer [env]])
@@ -24,13 +23,13 @@
 (def first-row-val (comp val ffirst))
 
 (defn fetch-query-result [xt q-args extract-result-f]
-  (jdbc/with-transaction [tx xt]
-    (let [raw-result (apply xt/q tx q-args)]
-      {:q-result raw-result
-       :result (extract-result-f raw-result)
-       :q-args q-args
-       :snapshot_token (first-row-val (xt/q tx "SHOW SNAPSHOT_TOKEN"))
-       :snapshot_timestamp (first-row-val (xt/q tx "SELECT CURRENT_TIMESTAMP"))})))
+  (let [snapshot-token (first-row-val (xt/q xt "SHOW SNAPSHOT_TOKEN"))
+        raw-result (apply xt/q xt (conj (vec q-args) {:snapshot-token snapshot-token}))]
+    {:q-result raw-result
+     :result (extract-result-f raw-result)
+     :q-args q-args
+     :snapshot_token snapshot-token
+     :snapshot_timestamp (first-row-val (xt/q xt "SELECT CURRENT_TIMESTAMP"))}))
 
 (comment
   (fetch-query-result *xt* ["FROM patient SELECT COUNT(*) AS patient_count"] first-row-val))
