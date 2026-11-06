@@ -27,7 +27,7 @@
     <maven.compiler.target>${java.version}</maven.compiler.target>
 
     <jackson.version>2.17.0</jackson.version>
-    <xtdb.version>2.2.0-20260924.153436-1</xtdb.version>
+    <xtdb.version>2.x-20261106.153107-1</xtdb.version>
     <postgresql.version>42.7.3</postgresql.version>
     <hikaricp.version>5.1.0</hikaricp.version>
     <junit.version>5.10.2</junit.version>
