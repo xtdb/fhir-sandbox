@@ -5,7 +5,7 @@ nodeCount: 3  # Dev: use 1 node via values-dev.yaml
 
 image:
   repository: ghcr.io/xtdb/xtdb-aws
-  tag: ge39d8a2
+  tag: nightly-20261105
   pullPolicy: Always
 
 nodeSelector:
@@ -127,6 +127,8 @@ xtdbConfig:
     # (ENV_VAR_NAME: Value)
     XTDB_LOGGING_LEVEL: "info" # See https://docs.xtdb.com/ops/troubleshooting/overview.html
     XTDB_PIPELINED_REPLICA_APPENDS: "1" # Temporary rollout switch, presence is what's read - see xtdb/xtdb#6113 before downgrading.
+    XTDB_REE_IIDS: "true" # Temporary compactor format switch (xtdb/xtdb#5914) - on or off takes two rolls, see the v2.2.1 notes in ops/config.md; no rollback below v2.2.1 once it's been on.
+    XTDB_WITHIN_FILE_RECENCY_BRANCHING: "true" # Temporary compactor format switch (xtdb/xtdb#6042) - same two-roll rule and rollback limit as XTDB_REE_IIDS.
 
   # Extra EnvFrom sources
   envFrom: []
