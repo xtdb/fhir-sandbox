@@ -73,6 +73,9 @@ help:
 	@echo "  make xtdb           - Install XTDB with Helm"
 	@echo "  make prom           - Install Prometheus"
 	@echo "  make prom-upgrade   - Upgrade Prometheus (e.g. after changing prometheus-config.yaml)"
+	@echo "  make tempo          - Install Grafana Tempo (OTLP trace backend for XTDB's tracer config)"
+	@echo "  make tempo-upgrade  - Upgrade Tempo (e.g. after changing tempo-config.yaml)"
+	@echo "  make tempo-logs     - Tail Tempo logs"
 	@echo ""
 	@echo "PostgreSQL (single-instance Bitnami chart):"
 	@echo "  make pg-dep         - Deploy single-instance PostgreSQL with persistent storage"
@@ -414,6 +417,27 @@ prom-upgrade:
 	@helm upgrade prometheus prometheus-community/prometheus \
 		--namespace $(NAMESPACE) \
 		-f prometheus-config.yaml
+
+tempo:
+	@echo "Adding Grafana Helm repo..."
+	@helm repo add grafana https://grafana.github.io/helm-charts || true
+	@helm repo update
+	@echo "Installing Tempo..."
+	@helm install tempo grafana/tempo \
+		--namespace $(NAMESPACE) \
+		-f tempo-config.yaml
+
+tempo-upgrade:
+	@echo "Adding Grafana Helm repo..."
+	@helm repo add grafana https://grafana.github.io/helm-charts || true
+	@helm repo update
+	@echo "Upgrading Tempo..."
+	@helm upgrade tempo grafana/tempo \
+		--namespace $(NAMESPACE) \
+		-f tempo-config.yaml
+
+tempo-logs:
+	@kubectl logs -f -l app.kubernetes.io/name=tempo -n $(NAMESPACE)
 
 # ===========================================
 # PostgreSQL (single-instance Bitnami chart)
