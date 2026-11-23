@@ -17,7 +17,8 @@
                                        :user (or (env :xtdb-user) "xtdb")
                                        :password (or (env :xtdb-password) "xtdb")}))
            (.setConnectionTimeout 5000)
-           (.setMinimumIdle 1))
+           (.setMinimumIdle 1)
+           (.setConnectionInitSql "SET application_name = 'XTDB FHIR Guardrails (Clojure)'"))
   :stop (.close *xt*))
 
 (def first-row-val (comp val ffirst))

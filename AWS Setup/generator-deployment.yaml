@@ -21,6 +21,7 @@ data:
             socketTimeout: 60
             connectTimeout: 10
             loginTimeout: 10
+            ApplicationName: "XTDB FHIR Generator"
       cloud:
         aws:
           parameterstore:
