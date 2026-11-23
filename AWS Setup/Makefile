@@ -72,6 +72,7 @@ help:
 	@echo "  make iam            - Create and configure IAM role"
 	@echo "  make xtdb           - Install XTDB with Helm"
 	@echo "  make prom           - Install Prometheus"
+	@echo "  make prom-upgrade   - Upgrade Prometheus (e.g. after changing prometheus-config.yaml)"
 	@echo ""
 	@echo "PostgreSQL (single-instance Bitnami chart):"
 	@echo "  make pg-dep         - Deploy single-instance PostgreSQL with persistent storage"
@@ -402,6 +403,15 @@ prom:
 	@helm repo update
 	@echo "Installing Prometheus..."
 	@helm install prometheus prometheus-community/prometheus \
+		--namespace $(NAMESPACE) \
+		-f prometheus-config.yaml
+
+prom-upgrade:
+	@echo "Adding Prometheus Helm repo..."
+	@helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+	@helm repo update
+	@echo "Upgrading Prometheus..."
+	@helm upgrade prometheus prometheus-community/prometheus \
 		--namespace $(NAMESPACE) \
 		-f prometheus-config.yaml
 
