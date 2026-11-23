@@ -11,7 +11,12 @@ server:
       service.beta.kubernetes.io/aws-load-balancer-private-ipv4-addresses: "10.0.4.200"
       service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-0fea78d9788180ab5"
   persistentVolume:
-    enabled: false
+    enabled: true
+    storageClass: gp2
+    size: 50Gi
+  # Cap the TSDB so it doesn't fill the PVC
+  retention: "15d"
+  retentionSize: "45GB"
 
 alertmanager:
   enabled: false
