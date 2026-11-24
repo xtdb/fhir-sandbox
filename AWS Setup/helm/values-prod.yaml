@@ -12,7 +12,6 @@ xtdbConfig:
     -Xmx5G
     -Xms2G
     -XX:MaxDirectMemorySize=2G
-    -XX:-UseBASE64Intrinsics
     -Dclojure.server.repl="{:port 7888 :accept clojure.core.server/repl}"
 #  jdkOptions: "-Dlog4j2.debug=true -Dkotlinx.coroutines.debug=on -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/lib/xtdb/ -Xmx5G -Xms2G -Dclojure.server.repl=\"{:port 7888 :accept clojure.core.server/repl}\""
 #  jdkOptions: "-Dkotlinx.coroutines.stacktrace.recovery=true -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/lib/xtdb/ -Xmx5G -Xms2G -Dclojure.server.repl=\"{:port 7888 :accept clojure.core.server/repl}\""

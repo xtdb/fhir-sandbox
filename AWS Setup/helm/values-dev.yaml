@@ -16,7 +16,7 @@ resources:
 xtdbConfig:
   # Reduced JVM memory for smaller instances
   # heap (1G) + direct memory (512m) + metaspace (256m) = ~1.8GB, leaving headroom for OS
-  jdkOptions: "-Xmx1000m -Xms1000m -XX:MaxDirectMemorySize=512m -XX:MaxMetaspaceSize=256m -XX:-UseBASE64Intrinsics"
+  jdkOptions: "-Xmx1000m -Xms1000m -XX:MaxDirectMemorySize=512m -XX:MaxMetaspaceSize=256m"
 
   localDiskCache:
     sizeLimit: "5Gi"
